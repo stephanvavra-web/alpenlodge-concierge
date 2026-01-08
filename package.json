@@ -1,7 +1,13 @@
 {
+  "name": "alpenlodge-concierge",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node concierge-server.mjs"
+  },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^5.2.1",
-    "openai": "^6.15.0"
+    "express": "^4.19.2",
+    "openai": "^4.30.0"
   }
 }
