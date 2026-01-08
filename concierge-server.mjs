@@ -13,7 +13,10 @@ if (!apiKey) {
   process.exit(1);
 }
 const openai = new OpenAI({ apiKey });
-
+// ✅ Health check for Render / monitoring
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
 app.post("/api/concierge", async (req, res) => {
   try {
     const messages = req.body?.messages || [];
