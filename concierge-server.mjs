@@ -1,63 +1,14 @@
 import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
-const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
-async function getWeatherTomorrow() {
-  const url =
-    `https://api.open-meteo.com/v1/forecast` +
-    `?latitude=${THIERSEE.lat}&longitude=${THIERSEE.lon}` +
-    `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode` +
-    `&timezone=Europe%2FVienna`;
+// Alpenlodge Concierge Backend (Render)
+// - Accepts BOTH: {messages:[...]} OR {question:"..."} (and {lang,page})
+// - Always returns: {reply:"..."}
 
-  const r = await fetch(url);
-  if (!r.ok) throw new Error("weather fetch failed");
-  const data = await r.json();
-
-  // Morgen = Index 1 (0 = heute)
-  const i = 1;
-  return {
-    date: data.daily.time[i],
-    tmin: data.daily.temperature_2m_min[i],
-    tmax: data.daily.temperature_2m_max[i],
-    pop: data.daily.precipitation_probability_max[i],
-    code: data.daily.weathercode[i],
-  };
-}
-
-function weatherText(w) {
-  // Minimal-Mapping – reicht für Concierge
-  const map = {
-    0: "klar",
-    1: "überwiegend klar",
-    2: "teils bewölkt",
-    3: "bewölkt",
-    45: "Nebel",
-    48: "Nebel",
-    51: "leichter Niesel",
-    61: "leichter Regen",
-    63: "Regen",
-    65: "starker Regen",
-    71: "leichter Schnee",
-    73: "Schnee",
-    75: "starker Schnee",
-    80: "Regenschauer",
-    81: "kräftige Schauer",
-    82: "heftige Schauer",
-    95: "Gewitter",
-  };
-  const desc = map[w.code] ?? `Wettercode ${w.code}`;
-  return `Wetter morgen (Thiersee, ${w.date}): ${desc}. ` +
-         `Min ${w.tmin}°C / Max ${w.tmax}°C. Regenwahrscheinlichkeit bis ${w.pop}%.`;
-}
-
-function isWeatherQuestion(text = "") {
-  const t = text.toLowerCase();
-  return /(wetter|forecast|weather|regen|schnee|temperatur|sonnig|bewölkt)/.test(t);
-}
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 // ✅ Only ENV key (Render → Environment Variables)
 const apiKey = process.env.OPENAI_API_KEY;
@@ -66,33 +17,78 @@ if (!apiKey) {
   process.exit(1);
 }
 const openai = new OpenAI({ apiKey });
+
+const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+
 // ✅ Health check for Render / monitoring
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
+
+function buildMessages(body) {
+  const b = body || {};
+  const lang = (typeof b.lang === "string" ? b.lang : "de").toLowerCase();
+  const page = typeof b.page === "string" ? b.page : "";
+
+  // 1) Prefer explicit messages array (chat-style)
+  let msgs = Array.isArray(b.messages) ? b.messages : [];
+
+  // 2) Fallback: accept {question:"..."} or {message:"..."}
+  const q =
+    (typeof b.question === "string" && b.question.trim()) ||
+    (typeof b.message === "string" && b.message.trim()) ||
+    "";
+
+  if ((!msgs || msgs.length === 0) && q) {
+    msgs = [{ role: "user", content: q }];
+  }
+
+  const languageLine =
+    lang.startsWith("en") ? "Answer in English." : "Antworte auf Deutsch.";
+
+  const system = [
+    "You are the Alpenlodge Concierge for a family-friendly apartment & suite lodge in Landl (Thiersee, Tyrol).",
+    languageLine,
+    "Be helpful, short, and practical.",
+    "Do NOT invent prices, availability, or booking confirmations. If asked, direct guests to the booking page (/buchen/) or ask for dates and number of guests.",
+    "If you don't know something, say so and suggest what to check next.",
+    page ? `Current page context: ${page}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  // Prepend system message (but avoid double system if client already sent one)
+  const hasSystem = Array.isArray(msgs) && msgs.some((m) => m && m.role === "system");
+  const finalMessages = hasSystem ? msgs : [{ role: "system", content: system }, ...(msgs || [])];
+
+  return { finalMessages, lang };
+}
+
 app.post("/api/concierge", async (req, res) => {
   try {
-    const messages = req.body?.messages || [];
-const lastUser = [...messages].reverse().find(m => m.role === "user")?.content || "";
+    const { finalMessages, lang } = buildMessages(req.body);
 
-if (isWeatherQuestion(lastUser)) {
-  try {
-    const w = await getWeatherTomorrow();
-    return res.json({ reply: weatherText(w) });
-  } catch (e) {
-    // Fallback: ehrlich bleiben
-    return res.json({ reply: "Ich kann das Live-Wetter gerade nicht abrufen. Bitte versuch es gleich nochmal." });
-  }
-}
+    // If still nothing, reply gracefully (no 500)
+    if (!finalMessages || finalMessages.length === 0) {
+      const txt = lang.startsWith("en")
+        ? "I did not receive a message."
+        : "Ich habe keine Nachricht erhalten.";
+      return res.status(400).json({ reply: txt });
+    }
+
     const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages,
+      model: MODEL,
+      messages: finalMessages,
       temperature: 0.4,
     });
 
     res.json({ reply: completion.choices?.[0]?.message?.content || "" });
   } catch (err) {
-    console.error("❌ Concierge error:", err);
+    console.error("❌ Concierge error:", err?.message || err);
+    // keep it user-safe; optionally reveal details if DEBUG=1
+    if (process.env.DEBUG === "1") {
+      return res.status(500).json({ error: "backend error", details: String(err?.message || err) });
+    }
     res.status(500).json({ error: "backend error" });
   }
 });
