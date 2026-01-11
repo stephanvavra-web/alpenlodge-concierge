@@ -390,8 +390,11 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Smoobu booking error:", err);
-    const details = err.details || null;
     const status = err.status || 500;
+    let details = err.details || null;
+    if (!details) {
+      details = { message: err?.message || String(err) };
+    }
     res.status(status).json({ error: "booking_error", details });
   }
 });
