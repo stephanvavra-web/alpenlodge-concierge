@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import OpenAI from "openai";
 
 // Fallback center (used only if knowledge file missing)
-const ALPENLODGE_FALLBACK_CENTER = { lat: 47.58848, lon: 12.03342 }; // Landl 37 (Alpenlodge)
+const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
 // ---------------- Knowledge (single file) ----------------
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +15,60 @@ const __dirname = path.dirname(__filename);
 const KNOWLEDGE_FILE = process.env.KNOWLEDGE_FILE || path.join(__dirname, "knowledge", "verified.json");
 
 let KNOWLEDGE = null;
+
+// Extract URLs from model output so the UI can display them separately as clickable sources.
+function extractUrls(text) {
+  if (!text) return [];
+  const re = /https?:\/\/[^\s)\]>"']+/gi;
+  const found = String(text).match(re) || [];
+  const uniq = [];
+  const seen = new Set();
+  for (const u of found) {
+    const url = u.replace(/[.,;:]+$/g, "");
+    if (!seen.has(url)) {
+      seen.add(url);
+      uniq.push(url);
+    }
+    if (uniq.length >= 12) break;
+  }
+  return uniq;
+}
+
+function pickFallbackSourceUrls(questionText) {
+  const q = String(questionText || "").toLowerCase();
+  const sources = KNOWLEDGE?.sources || {};
+  const want = {
+    restaurants: /(restaurant|essen|kulinarik|wirtshaus|gasthaus|pizza|burger|cafe|café)/i.test(q),
+    events: /(event|events|veranstaltung|veranstaltungen|sportevent|sportevents|rennen|triathlon|marathon|lauf)/i.test(q),
+    ski_areas: /(ski|skigebiet|snowboard|piste|lift|langlauf|rodel|schlitten)/i.test(q),
+    rental: /(verleih|miete|rent|rental|ski.*verleih|snowboard.*verleih|schlitten)/i.test(q),
+    lakes_pools_wellness: /(badesee|see|baden|schwimmbad|hallenbad|therme|sauna|wellness)/i.test(q),
+    doctors_pharmacies: /(arzt|ärzte|apotheke|notdienst|notruf|krankenhaus)/i.test(q),
+    hiking: /(wandern|wanderweg|tour|hike|winterwandern|schneeschuh)/i.test(q),
+  };
+
+  const keys = [];
+  if (want.restaurants) keys.push("restaurants");
+  if (want.events) keys.push("events");
+  if (want.ski_areas) keys.push("ski_areas");
+  if (want.rental) keys.push("rental");
+  if (want.lakes_pools_wellness) keys.push("lakes_pools_wellness");
+  if (want.doctors_pharmacies) keys.push("doctors_pharmacies");
+  if (want.hiking) keys.push("hiking");
+  if (keys.length === 0) keys.push("events", "restaurants", "hiking");
+
+  const out = [];
+  const seen = new Set();
+  for (const k of keys) {
+    const s = sources[k];
+    const url = s?.source;
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      out.push(url);
+    }
+  }
+  return out.slice(0, 6);
+}
 
 function safeReadJson(filePath) {
   try {
@@ -39,9 +93,6 @@ loadKnowledge();
 const SMOOBU_API_KEY = process.env.SMOOBU_API_KEY;
 const SMOOBU_CUSTOMER_ID = process.env.SMOOBU_CUSTOMER_ID; // int (dein Smoobu User/Customer ID)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/admin Smoobu routes
-
-// Default center point for radius filtering / weather (Landl, Thiersee – approx.)
-const THIERSEE = { lat: 47.5890, lon: 12.03543 }; // source: Landl (Thiersee) map location
 const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
@@ -246,208 +297,6 @@ function isWeatherQuestion(text = "") {
 }
 const app = express();
 app.use(cors());
-
-// ----------------------
-// Verified knowledge (NO hallucinations)
-// ----------------------
-const KNOWLEDGE_PATH =
-  process.env.KNOWLEDGE_PATH || path.join(process.cwd(), "knowledge", "verified.json");
-
-function loadVerifiedKnowledge() {
-  try {
-    const raw = fs.readFileSync(KNOWLEDGE_PATH, "utf-8");
-    const data = JSON.parse(raw);
-    return data;
-  } catch (err) {
-    console.warn("⚠️ Could not load knowledge file:", KNOWLEDGE_PATH, err?.message || err);
-    return null;
-  }
-}
-
-let VERIFIED = loadVerifiedKnowledge();
-
-function reloadVerifiedKnowledgeIfRequested() {
-  if (process.env.KNOWLEDGE_RELOAD === "1") VERIFIED = loadVerifiedKnowledge();
-}
-
-function haversineKm(a, b) {
-  const R = 6371;
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lon - a.lon);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const x =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * (Math.sin(dLon / 2) ** 2);
-  return 2 * R * Math.asin(Math.sqrt(x));
-}
-
-function getDefaultCenter() {
-  return (
-    VERIFIED?.alpenlodge?.center ||
-    VERIFIED?.meta?.center ||
-    ALPENLODGE_FALLBACK_CENTER
-  );
-}
-
-function getDefaultRadiusKm() {
-  return VERIFIED?.meta?.rules?.default_radius_km ?? 35;
-}
-
-function pickLocaleFromAcceptLanguage(req) {
-  const h = req.headers["accept-language"] || "";
-  if (h.toLowerCase().includes("de")) return "de";
-  if (h.toLowerCase().includes("en")) return "en";
-  return "de";
-}
-
-function detectIntents(text) {
-  const t = (text || "").toLowerCase();
-  const intents = new Set();
-
-  if (/(restaurant|essen|mittag|abend|wirtshaus|gasthof|café|cafe|bar|kulinar)/i.test(t)) intents.add("restaurants");
-  if (/(ski|skigebiet|piste|snowboard|langlauf|lift|nachtskifahren)/i.test(t)) intents.add("ski_areas");
-  if (/(verleih|mieten|ausleihen|schlitten|rodel|ski.*verleih|snowboard.*verleih)/i.test(t)) intents.add("rental");
-  if (/(badesee|see|schwimm|hallenbad|therme|wellness|spa|sauna)/i.test(t)) intents.add("lakes_pools_wellness");
-  if (/(event|veranstaltung|konzert|festival|rennen|sportevent|triathlon|marathon|radmarathon|koasa)/i.test(t)) intents.add("events");
-  if (/(arzt|apotheke|notdienst|krankenhaus|rettung|112|144|141|1450)/i.test(t)) intents.add("doctors_pharmacies");
-  if (/(familie|kinder|spielplatz|indoor|aktivität|aktivitaet|familien)/i.test(t)) intents.add("family_activities");
-  if (/(wandern|wanderweg|tour|schneeschuh|winterwandern|rodelbahn|bergroute)/i.test(t)) intents.add("hiking");
-  if (/(ausstattung|fitness|infrarot|sauna|waschmaschine|trockner)/i.test(t)) intents.add("alpenlodge_amenities");
-
-  // If nothing matched, still keep general intent
-  if (intents.size === 0) intents.add("general");
-  return [...intents];
-}
-
-function getVerifiedContext(userText) {
-  reloadVerifiedKnowledgeIfRequested();
-  const intents = detectIntents(userText);
-
-  const center = getDefaultCenter();
-  let radiusKm = getDefaultRadiusKm();
-
-  // If user explicitly asks for Kitzbühel, allow extended region results
-  const wantsKitz = /kitzb(ü|ue)hel/i.test(userText || "");
-  const allowExtended = wantsKitz;
-
-  const allItems = Array.isArray(VERIFIED?.items) ? VERIFIED.items : [];
-  const wantedTypes = new Set();
-
-  if (intents.includes("restaurants")) wantedTypes.add("restaurant");
-  if (intents.includes("ski_areas")) wantedTypes.add("ski_area");
-  if (intents.includes("rental")) wantedTypes.add("rental");
-  if (intents.includes("lakes_pools_wellness")) wantedTypes.add("lake_pool_wellness");
-  if (intents.includes("events")) wantedTypes.add("event");
-  if (intents.includes("doctors_pharmacies")) wantedTypes.add("health");
-  if (intents.includes("family_activities")) wantedTypes.add("family_activity");
-  if (intents.includes("hiking")) wantedTypes.add("trail");
-
-  const filtered = [];
-  for (const it of allItems) {
-    if (wantedTypes.size && !wantedTypes.has(it.type)) continue;
-
-    const hasGeo = typeof it.lat === "number" && typeof it.lon === "number";
-    if (hasGeo) {
-      const d = haversineKm(center, { lat: it.lat, lon: it.lon });
-      if (d <= radiusKm || (allowExtended && it.tags?.includes("extended"))) {
-        filtered.push({ ...it, distance_km: Math.round(d * 10) / 10 });
-      }
-    } else {
-      // No geo: include only if it's explicitly tagged extended and user asked for it
-      if (allowExtended && it.tags?.includes("extended")) filtered.push(it);
-      // Otherwise skip, because we can't guarantee it's inside radius
-    }
-  }
-
-  // Sources (fallback directories)
-  const sources = VERIFIED?.sources || {};
-  const pick = (k) => (sources[k] ? { key: k, ...sources[k] } : null);
-
-  const fallbackSources = [];
-  if (intents.includes("restaurants")) fallbackSources.push(pick("restaurants"));
-  if (intents.includes("ski_areas")) fallbackSources.push(pick("ski_areas"));
-  if (intents.includes("rental")) fallbackSources.push(pick("rental"));
-  if (intents.includes("lakes_pools_wellness")) fallbackSources.push(pick("lakes_pools_wellness"));
-  if (intents.includes("events")) fallbackSources.push(pick("events"));
-  if (intents.includes("doctors_pharmacies")) fallbackSources.push(pick("doctors_pharmacies"));
-  if (intents.includes("hiking")) fallbackSources.push(pick("hiking"));
-
-  return {
-    intents,
-    center,
-    radiusKm,
-    allowExtended,
-    items: filtered,
-    fallbackSources: fallbackSources.filter(Boolean),
-    alpenlodge: VERIFIED?.alpenlodge || null,
-    rules: VERIFIED?.meta?.rules || { default_radius_km: radiusKm, never_invent: true, always_show_source: true },
-  };
-}
-
-function formatVerifiedContextForPrompt(ctx) {
-  const lines = [];
-  lines.push(`- Default radius: ${ctx.radiusKm} km (from Alpenlodge center ${ctx.center.lat}, ${ctx.center.lon})`);
-  if (ctx.allowExtended) lines.push(`- Extended region enabled (user explicitly asked, e.g. Kitzbühel).`);
-  lines.push(`- Intents: ${ctx.intents.join(", ")}`);
-
-  const sources = ctx.fallbackSources || [];
-  if (sources.length) {
-    lines.push("\nOFFICIAL SOURCES (use these if no verified items exist):");
-    for (const s of sources) lines.push(`- ${s.label}: ${s.source}`);
-  }
-
-  if (ctx.alpenlodge?.amenities?.length) {
-    lines.push("\nALPENLODGE AMENITIES (owner-confirmed):");
-    for (const a of ctx.alpenlodge.amenities) {
-      lines.push(`- ${a.name}: ${a.details} | Quelle: ${a.source}`);
-    }
-  }
-
-  const items = ctx.items || [];
-  if (items.length) {
-    lines.push("\nVERIFIED ITEMS (ONLY these names may be recommended):");
-    for (const it of items.slice(0, 25)) {
-      const d = typeof it.distance_km === "number" ? ` (${it.distance_km} km)` : "";
-      const extra = it.details ? ` – ${it.details}` : "";
-      lines.push(`- ${it.name}${d}${extra} | Quelle: ${it.source}`);
-    }
-    if (items.length > 25) lines.push(`... (${items.length - 25} more verified items omitted for brevity)`);
-  } else {
-    lines.push("\nNo verified nearby items found for this request. Provide ONLY official source links (no invented names).");
-  }
-
-  return lines.join("\n");
-}
-
-function ensureSourcesInReply(replyText, ctx) {
-  // If we delivered verified items or official sources, but reply misses "Quelle:", append sources block.
-  const hasSourcesWord = /quelle\s*:/i.test(replyText || "");
-  const hadAnyContext =
-    (ctx?.items?.length || 0) > 0 || (ctx?.fallbackSources?.length || 0) > 0 || (ctx?.alpenlodge?.amenities?.length || 0) > 0;
-
-  if (hadAnyContext && !hasSourcesWord) {
-    const lines = [];
-    lines.push(replyText.trim());
-    lines.push("\n\nQuellen:");
-    for (const s of ctx.fallbackSources || []) lines.push(`- ${s.label}: ${s.source}`);
-    // Also add item sources if present (deduplicated)
-    const set = new Set();
-    for (const it of ctx.items || []) if (it.source) set.add(it.source);
-    for (const src of set) lines.push(`- ${src}`);
-    return lines.join("\n");
-  }
-  return replyText;
-}
-
-// Optional: serve the knowledge file for debugging (read-only)
-app.get("/api/knowledge", (req, res) => {
-  reloadVerifiedKnowledgeIfRequested();
-  if (!VERIFIED) return res.status(404).json({ error: "knowledge_missing", path: KNOWLEDGE_PATH });
-  res.json({ path: KNOWLEDGE_PATH, meta: VERIFIED.meta, alpenlodge: VERIFIED.alpenlodge, items_count: (VERIFIED.items || []).length, sources: VERIFIED.sources });
-});
-
 app.use(express.json());
 
 // ✅ Only ENV key (Render → Environment Variables)
@@ -775,9 +624,9 @@ async function conciergeChatHandler(req, res) {
 
     // Helper: build a strict, source-first system prompt from the single knowledge file.
     function buildSystemPrompt(questionText) {
-      const rules = VERIFIED?.meta?.rules || {};
+      const rules = KNOWLEDGE?.meta?.rules || {};
       const radiusKm = Number(rules.default_radius_km || 35);
-      const center = VERIFIED?.meta?.base_location?.coords || VERIFIED?.alpenlodge?.center || THIERSEE;
+      const center = KNOWLEDGE?.alpenlodge?.center || THIERSEE;
 
       const q = String(questionText || "").toLowerCase();
       const wantsEvents = /(event|events|veranstaltung|veranstaltungen|sportevent|sportevents|rennen|triathlon|marathon|lauf)/i.test(q);
@@ -788,7 +637,7 @@ async function conciergeChatHandler(req, res) {
       const wantsHiking = /(wandern|wanderweg|tour|hike|winterwandern|schneeschuh)/i.test(q);
       const wantsAmenities = /(ausstattung|amenities|fitness|sauna|wasch|trockner|wlan|wi-?fi|park|ladestation)/i.test(q);
 
-      const sources = VERIFIED?.sources || {};
+      const sources = KNOWLEDGE?.sources || {};
 
       function pickSources() {
         const out = [];
@@ -812,7 +661,7 @@ async function conciergeChatHandler(req, res) {
       }
 
       function pickEventItems() {
-        const items = Array.isArray(VERIFIED?.items) ? VERIFIED.items : [];
+        const items = Array.isArray(KNOWLEDGE?.items) ? KNOWLEDGE.items : [];
         const events = items.filter((it) => it && it.type === "event");
         // Prefer 2026 (if present)
         const e2026 = events.filter((e) => String(e.date_from || "").startsWith("2026"));
@@ -828,7 +677,7 @@ async function conciergeChatHandler(req, res) {
       }
 
       function pickAmenities() {
-        const list = Array.isArray(VERIFIED?.alpenlodge?.amenities) ? VERIFIED.alpenlodge.amenities : [];
+        const list = Array.isArray(KNOWLEDGE?.alpenlodge?.amenities) ? KNOWLEDGE.alpenlodge.amenities : [];
         if (!list.length) return "";
         return list
           .slice(0, 20)
@@ -921,7 +770,14 @@ async function conciergeChatHandler(req, res) {
       }
     }
 
-    res.json({ reply: response.output_text || "" });
+    const reply = response.output_text || "";
+    let links = extractUrls(reply);
+    if (!links.length) {
+      // If the model didn't emit URLs for some reason, provide the official source links.
+      links = pickFallbackSourceUrls(userMessage);
+    }
+
+    res.json({ reply, links });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
     const status = err?.status || err?.response?.status;
@@ -1022,8 +878,6 @@ app.get("/api/smoobu/bookings/:id", async (req, res) => {
 
 // Write endpoints (if ADMIN_TOKEN is set, they are gated)
 function forbidUnlessAdmin(req, res) {
-  // If no ADMIN_TOKEN is set, do NOT block (default allow).
-  if (!ADMIN_TOKEN) return false;
   if (requireAdmin(req)) return true;
   res.status(403).json({ error: "forbidden", hint: "Missing/invalid ADMIN_TOKEN." });
   return false;
