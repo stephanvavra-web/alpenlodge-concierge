@@ -1,0 +1,131 @@
+{
+  "meta": {
+    "version": "2026-01-11",
+    "language": "de",
+    "rules": {
+      "default_radius_km": 35,
+      "never_invent": true,
+      "always_show_source": true,
+      "no_old_brand_name": true
+    }
+  },
+  "alpenlodge": {
+    "name": "Alpenlodge",
+    "center": {
+      "lat": 47.58848,
+      "lon": 12.03342
+    },
+    "amenities": [
+      {
+        "type": "amenity",
+        "name": "Fitnessraum",
+        "details": "24/7 frei benutzbar",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Infrarot-Sauna",
+        "details": "24/7 frei benutzbar",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Waschmaschinen & Trockner",
+        "details": "24/7 verfügbar",
+        "source": "INTERNAL:owner-confirmed"
+      }
+    ]
+  },
+  "sources": {
+    "restaurants": {
+      "label": "Kufsteinerland – Gastronomie-Verzeichnis (offiziell)",
+      "source": "https://www.kufstein.com/de/die-gastronomie-des-kufsteinerland.html"
+    },
+    "ski_areas": {
+      "label": "SkiWelt Wilder Kaiser – Brixental (offiziell) / Alpenbahnen Spitzingsee (offiziell)",
+      "source": "https://www.skiwelt.tirol/ | https://www.alpenbahnen-spitzingsee.de/winter/"
+    },
+    "rental": {
+      "label": "Kufsteinerland – Freizeit & Infrastruktur / Verzeichnisse (offiziell)",
+      "source": "https://www.kufstein.com/de/"
+    },
+    "lakes_pools_wellness": {
+      "label": "Kufsteinerland – Badeseen & Schwimmbäder (offiziell) / Auszeit & Wellness (offiziell)",
+      "source": "https://www.kufstein.com/de/aktivitaeten/sommer/badeurlaub.html | https://www.kufstein.com/de/aktivitaeten/auszeit.html"
+    },
+    "events": {
+      "label": "Kufstein Kultur & Events (offiziell) / Alpenregion Tegernsee Schliersee – Veranstaltungskalender (offiziell)",
+      "source": "https://kultur.kufstein.at/de/kufstein/events/ | https://www.tegernsee-schliersee.de/veranstaltungskalender"
+    },
+    "doctors_pharmacies": {
+      "label": "Gesundheit.gv.at – offizielle Infos & Dienste (Österreich)",
+      "source": "https://www.gesundheit.gv.at/gesundheitsleistungen/gesundheitswesen/notrufnummern.html"
+    },
+    "hiking": {
+      "label": "Kufsteinerland – Tourenportal (offiziell) / Tourenportal Tegernsee Schliersee (offiziell)",
+      "source": "https://www.kufstein.com/de/tourenportal.html | https://maps.tegernsee-schliersee.de/mobile/de/"
+    }
+  },
+  "items": [
+    {
+      "type": "event",
+      "name": "KUFSTEIN unlimited 2026",
+      "category": "sport_event",
+      "location_name": "Kufstein (Stadtzentrum/Stadtpark/Fischergries)",
+      "date_from": "2026-06-12",
+      "date_to": "2026-06-13",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Open-Air Festival im Stadtzentrum; Termine laut offizieller Seite.",
+      "source": "https://kultur.kufstein.at/de/kufstein/events/kufstein-unlimited-2026.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "56. Ebbser Koasamarsch (Ebbs) – 2026",
+      "category": "sport_event",
+      "location_name": "Ebbs (Tirol)",
+      "date_from": "2026-06-13",
+      "date_to": "2026-06-13",
+      "lat": 47.64081,
+      "lon": 12.21794,
+      "details": "Wander- & Trailrunning-Event; Datum laut offizieller Koasamarsch-Seite.",
+      "source": "https://www.koasamarsch.at/de/koasamarsch-ebbs-2025-55-jahre.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Int. Thiersee Triathlon – 2026",
+      "category": "sport_event",
+      "location_name": "Thiersee (Tirol)",
+      "date_from": "2026-08-16",
+      "date_to": "2026-08-16",
+      "lat": 47.56667,
+      "lon": 12.08333,
+      "details": "Triathlon (Sprint & olympische Distanz) – Save-the-Date laut offizieller Seite.",
+      "source": "https://www.thiersee-triathlon.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "10. Kufsteinerland Radmarathon – 2026",
+      "category": "sport_event",
+      "location_name": "Kufstein/Kufsteinerland",
+      "date_from": "2026-08-23",
+      "date_to": "2026-08-23",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Jubiläums-Radmarathon; Termin laut offizieller Radmarathon-Seite.",
+      "source": "https://www.kufsteinerland-radmarathon.at/de/kufsteinerland-radmarathon.html",
+      "tags": [
+        "within_35km"
+      ]
+    }
+  ]
+}

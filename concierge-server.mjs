@@ -1,8 +1,38 @@
 import express from "express";
 import cors from "cors";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import OpenAI from "openai";
-const THIERSEE = { lat: 47.5860, lon: 12.1070 };
+
+// Fallback center (used only if knowledge file missing)
+const ALPENLODGE_FALLBACK_CENTER = { lat: 47.58848, lon: 12.03342 }; // Landl 37 (Alpenlodge)
+
+// ---------------- Knowledge (single file) ----------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const KNOWLEDGE_FILE = process.env.KNOWLEDGE_FILE || path.join(__dirname, "knowledge", "verified.json");
+
+let KNOWLEDGE = null;
+
+function safeReadJson(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function loadKnowledge() {
+  KNOWLEDGE = safeReadJson(KNOWLEDGE_FILE);
+  if (!KNOWLEDGE) {
+    console.warn("⚠️  Knowledge file missing/unreadable:", KNOWLEDGE_FILE);
+  }
+}
+
+loadKnowledge();
 
 // ---------------- Smoobu (läuft komplett über Render – kein PHP nötig) ----------------
 // API Docs: https://docs.smoobu.com/  (Auth-Header: Api-Key)
@@ -84,7 +114,9 @@ function getAuthToken(req) {
 }
 
 function requireAdmin(req) {
-  if (!ADMIN_TOKEN) return false;
+  // If ADMIN_TOKEN is NOT set, we don't block any Smoobu endpoints.
+  // If it IS set, it acts as an optional gate for write/admin calls.
+  if (!ADMIN_TOKEN) return true;
   return getAuthToken(req) === ADMIN_TOKEN;
 }
 
@@ -209,14 +241,210 @@ function isWeatherQuestion(text = "") {
   const t = text.toLowerCase();
   return /(wetter|forecast|weather|regen|schnee|temperatur|sonnig|bewölkt)/.test(t);
 }
-
-function isRestaurantOrRecommendationQuestion(text = "") {
-  const t = String(text || "").toLowerCase();
-  return /(restaurant|gasthaus|wirtshaus|pizzeria|cafe|bar|empfehlung|recommend)/.test(t);
-}
-
 const app = express();
 app.use(cors());
+
+// ----------------------
+// Verified knowledge (NO hallucinations)
+// ----------------------
+const KNOWLEDGE_PATH =
+  process.env.KNOWLEDGE_PATH || path.join(process.cwd(), "knowledge", "verified.json");
+
+function loadVerifiedKnowledge() {
+  try {
+    const raw = fs.readFileSync(KNOWLEDGE_PATH, "utf-8");
+    const data = JSON.parse(raw);
+    return data;
+  } catch (err) {
+    console.warn("⚠️ Could not load knowledge file:", KNOWLEDGE_PATH, err?.message || err);
+    return null;
+  }
+}
+
+let VERIFIED = loadVerifiedKnowledge();
+
+function reloadVerifiedKnowledgeIfRequested() {
+  if (process.env.KNOWLEDGE_RELOAD === "1") VERIFIED = loadVerifiedKnowledge();
+}
+
+function haversineKm(a, b) {
+  const R = 6371;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * (Math.sin(dLon / 2) ** 2);
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+function getDefaultCenter() {
+  return (
+    VERIFIED?.alpenlodge?.center ||
+    VERIFIED?.meta?.center ||
+    ALPENLODGE_FALLBACK_CENTER
+  );
+}
+
+function getDefaultRadiusKm() {
+  return VERIFIED?.meta?.rules?.default_radius_km ?? 35;
+}
+
+function pickLocaleFromAcceptLanguage(req) {
+  const h = req.headers["accept-language"] || "";
+  if (h.toLowerCase().includes("de")) return "de";
+  if (h.toLowerCase().includes("en")) return "en";
+  return "de";
+}
+
+function detectIntents(text) {
+  const t = (text || "").toLowerCase();
+  const intents = new Set();
+
+  if (/(restaurant|essen|mittag|abend|wirtshaus|gasthof|café|cafe|bar|kulinar)/i.test(t)) intents.add("restaurants");
+  if (/(ski|skigebiet|piste|snowboard|langlauf|lift|nachtskifahren)/i.test(t)) intents.add("ski_areas");
+  if (/(verleih|mieten|ausleihen|schlitten|rodel|ski.*verleih|snowboard.*verleih)/i.test(t)) intents.add("rental");
+  if (/(badesee|see|schwimm|hallenbad|therme|wellness|spa|sauna)/i.test(t)) intents.add("lakes_pools_wellness");
+  if (/(event|veranstaltung|konzert|festival|rennen|sportevent|triathlon|marathon|radmarathon|koasa)/i.test(t)) intents.add("events");
+  if (/(arzt|apotheke|notdienst|krankenhaus|rettung|112|144|141|1450)/i.test(t)) intents.add("doctors_pharmacies");
+  if (/(familie|kinder|spielplatz|indoor|aktivität|aktivitaet|familien)/i.test(t)) intents.add("family_activities");
+  if (/(wandern|wanderweg|tour|schneeschuh|winterwandern|rodelbahn|bergroute)/i.test(t)) intents.add("hiking");
+  if (/(ausstattung|fitness|infrarot|sauna|waschmaschine|trockner)/i.test(t)) intents.add("alpenlodge_amenities");
+
+  // If nothing matched, still keep general intent
+  if (intents.size === 0) intents.add("general");
+  return [...intents];
+}
+
+function getVerifiedContext(userText) {
+  reloadVerifiedKnowledgeIfRequested();
+  const intents = detectIntents(userText);
+
+  const center = getDefaultCenter();
+  let radiusKm = getDefaultRadiusKm();
+
+  // If user explicitly asks for Kitzbühel, allow extended region results
+  const wantsKitz = /kitzb(ü|ue)hel/i.test(userText || "");
+  const allowExtended = wantsKitz;
+
+  const allItems = Array.isArray(VERIFIED?.items) ? VERIFIED.items : [];
+  const wantedTypes = new Set();
+
+  if (intents.includes("restaurants")) wantedTypes.add("restaurant");
+  if (intents.includes("ski_areas")) wantedTypes.add("ski_area");
+  if (intents.includes("rental")) wantedTypes.add("rental");
+  if (intents.includes("lakes_pools_wellness")) wantedTypes.add("lake_pool_wellness");
+  if (intents.includes("events")) wantedTypes.add("event");
+  if (intents.includes("doctors_pharmacies")) wantedTypes.add("health");
+  if (intents.includes("family_activities")) wantedTypes.add("family_activity");
+  if (intents.includes("hiking")) wantedTypes.add("trail");
+
+  const filtered = [];
+  for (const it of allItems) {
+    if (wantedTypes.size && !wantedTypes.has(it.type)) continue;
+
+    const hasGeo = typeof it.lat === "number" && typeof it.lon === "number";
+    if (hasGeo) {
+      const d = haversineKm(center, { lat: it.lat, lon: it.lon });
+      if (d <= radiusKm || (allowExtended && it.tags?.includes("extended"))) {
+        filtered.push({ ...it, distance_km: Math.round(d * 10) / 10 });
+      }
+    } else {
+      // No geo: include only if it's explicitly tagged extended and user asked for it
+      if (allowExtended && it.tags?.includes("extended")) filtered.push(it);
+      // Otherwise skip, because we can't guarantee it's inside radius
+    }
+  }
+
+  // Sources (fallback directories)
+  const sources = VERIFIED?.sources || {};
+  const pick = (k) => (sources[k] ? { key: k, ...sources[k] } : null);
+
+  const fallbackSources = [];
+  if (intents.includes("restaurants")) fallbackSources.push(pick("restaurants"));
+  if (intents.includes("ski_areas")) fallbackSources.push(pick("ski_areas"));
+  if (intents.includes("rental")) fallbackSources.push(pick("rental"));
+  if (intents.includes("lakes_pools_wellness")) fallbackSources.push(pick("lakes_pools_wellness"));
+  if (intents.includes("events")) fallbackSources.push(pick("events"));
+  if (intents.includes("doctors_pharmacies")) fallbackSources.push(pick("doctors_pharmacies"));
+  if (intents.includes("hiking")) fallbackSources.push(pick("hiking"));
+
+  return {
+    intents,
+    center,
+    radiusKm,
+    allowExtended,
+    items: filtered,
+    fallbackSources: fallbackSources.filter(Boolean),
+    alpenlodge: VERIFIED?.alpenlodge || null,
+    rules: VERIFIED?.meta?.rules || { default_radius_km: radiusKm, never_invent: true, always_show_source: true },
+  };
+}
+
+function formatVerifiedContextForPrompt(ctx) {
+  const lines = [];
+  lines.push(`- Default radius: ${ctx.radiusKm} km (from Alpenlodge center ${ctx.center.lat}, ${ctx.center.lon})`);
+  if (ctx.allowExtended) lines.push(`- Extended region enabled (user explicitly asked, e.g. Kitzbühel).`);
+  lines.push(`- Intents: ${ctx.intents.join(", ")}`);
+
+  const sources = ctx.fallbackSources || [];
+  if (sources.length) {
+    lines.push("\nOFFICIAL SOURCES (use these if no verified items exist):");
+    for (const s of sources) lines.push(`- ${s.label}: ${s.source}`);
+  }
+
+  if (ctx.alpenlodge?.amenities?.length) {
+    lines.push("\nALPENLODGE AMENITIES (owner-confirmed):");
+    for (const a of ctx.alpenlodge.amenities) {
+      lines.push(`- ${a.name}: ${a.details} | Quelle: ${a.source}`);
+    }
+  }
+
+  const items = ctx.items || [];
+  if (items.length) {
+    lines.push("\nVERIFIED ITEMS (ONLY these names may be recommended):");
+    for (const it of items.slice(0, 25)) {
+      const d = typeof it.distance_km === "number" ? ` (${it.distance_km} km)` : "";
+      const extra = it.details ? ` – ${it.details}` : "";
+      lines.push(`- ${it.name}${d}${extra} | Quelle: ${it.source}`);
+    }
+    if (items.length > 25) lines.push(`... (${items.length - 25} more verified items omitted for brevity)`);
+  } else {
+    lines.push("\nNo verified nearby items found for this request. Provide ONLY official source links (no invented names).");
+  }
+
+  return lines.join("\n");
+}
+
+function ensureSourcesInReply(replyText, ctx) {
+  // If we delivered verified items or official sources, but reply misses "Quelle:", append sources block.
+  const hasSourcesWord = /quelle\s*:/i.test(replyText || "");
+  const hadAnyContext =
+    (ctx?.items?.length || 0) > 0 || (ctx?.fallbackSources?.length || 0) > 0 || (ctx?.alpenlodge?.amenities?.length || 0) > 0;
+
+  if (hadAnyContext && !hasSourcesWord) {
+    const lines = [];
+    lines.push(replyText.trim());
+    lines.push("\n\nQuellen:");
+    for (const s of ctx.fallbackSources || []) lines.push(`- ${s.label}: ${s.source}`);
+    // Also add item sources if present (deduplicated)
+    const set = new Set();
+    for (const it of ctx.items || []) if (it.source) set.add(it.source);
+    for (const src of set) lines.push(`- ${src}`);
+    return lines.join("\n");
+  }
+  return replyText;
+}
+
+// Optional: serve the knowledge file for debugging (read-only)
+app.get("/api/knowledge", (req, res) => {
+  reloadVerifiedKnowledgeIfRequested();
+  if (!VERIFIED) return res.status(404).json({ error: "knowledge_missing", path: KNOWLEDGE_PATH });
+  res.json({ path: KNOWLEDGE_PATH, meta: VERIFIED.meta, alpenlodge: VERIFIED.alpenlodge, items_count: (VERIFIED.items || []).length, sources: VERIFIED.sources });
+});
+
 app.use(express.json());
 
 // ✅ Only ENV key (Render → Environment Variables)
@@ -226,24 +454,6 @@ if (!apiKey) {
   process.exit(1);
 }
 const openai = new OpenAI({ apiKey });
-const OPENAI_MODEL_PRIMARY = process.env.OPENAI_MODEL_PRIMARY || process.env.OPENAI_MODEL || "gpt-5.2";
-const OPENAI_MODEL_FALLBACK = process.env.OPENAI_MODEL_FALLBACK || "gpt-4.1-mini";
-
-// Kurzes, kuratiertes Wissen (für "keine Erfindungen") – nur das, was wir sicher als Region-Infos liefern wollen.
-const KUFSTEINERLAND_KB_DE = `
-KUFSTEINERLAND (Tirol) – verifizierte Highlights:
-- Kufstein: Festung Kufstein (historische Festung oberhalb der Stadt).
-- Kaisergebirge / Kaisertal: Naturschutzgebiet; klassischer Zustieg über den "Kaiseraufstieg" mit ca. 300 Stufen, danach Wanderwege ins Tal.
-- Thiersee (See): Spazierweg rund um den See; im Sommer Badebetrieb.
-- Gästekarte: KufsteinerlandCard (je nach Saison/Leistung u.a. Eintritte/ÖV-Ermäßigungen).
-Wichtig: Keine Restaurants, Öffnungszeiten oder Preise erfinden. Wenn unsicher: „Kann ich nicht sicher bestätigen“ und ggf. auf offizielle Quellen/Infopoints verweisen.
-`.trim();
-
-function wantsMiniModel(body) {
-  const pref = (typeof body?.model === "string" ? body.model : "").toLowerCase().trim();
-  return pref === "mini" || pref === "fast" || pref === "cheap";
-}
-
 // ✅ Health check for Render / monitoring
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -304,7 +514,7 @@ async function smoobuAvailabilityHandler(req, res) {
 
     availabilityCacheSet(cacheKey, data);
 
-// Build short-lived offer tokens so the public "book" endpoint can be protected without exposing ADMIN_TOKEN.
+    // Build short-lived offer tokens so the public "book" endpoint can be protected without exposing secrets.
 let offers = [];
 try {
   const exp = Date.now() + 10 * 60 * 1000; // 10 minutes
@@ -378,7 +588,8 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
     method: "POST",
-    jsonBody: payload,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 
   const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
@@ -502,9 +713,10 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     };
 
     // Create booking in Smoobu
-    const result = await smoobuFetch("/api/reservations", {
+    const result = await smoobuFetch("/reservations", {
       method: "POST",
-      jsonBody: reservationPayload,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reservationPayload),
     });
 
     // Some Smoobu responses return {id:...} others {reservationId:...}
@@ -558,21 +770,111 @@ async function conciergeChatHandler(req, res) {
 
     let messages = Array.isArray(body.messages) ? body.messages : null;
 
-    if (!messages) {
-      const sys = [
-  "Du bist der Alpenlodge Concierge.",
-  "Antworten kurz, freundlich und konkret.",
-  "ABSOLUTES ERFINDUNGSVERBOT: Erfinde niemals Fakten (Restaurants, Öffnungszeiten, Preise, Events, Regeln). Wenn du etwas nicht sicher weißt: sag das offen und biete an, es zu prüfen (oder verweise auf offizielle Quellen).",
-  "Wenn es um Verfügbarkeit/Preis/Buchen geht: frage nach Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer. Nutze dafür die Smoobu-Endpunkte /concierge/availability und /concierge/book.",
-  "Wenn es um Kufsteinerland/Thiersee/Kufstein/Ebbs/Erl geht: nutze ausschließlich das kuratierte Wissen aus KUFSTEINERLAND_KB_DE und erfinde nichts.",
-  `Wissen (Kufsteinerland): ${KUFSTEINERLAND_KB_DE}`,
-  `Seite: ${page}. Locale: ${locale}.`,
-].join(" ");
+    // Helper: build a strict, source-first system prompt from the single knowledge file.
+    function buildSystemPrompt(questionText) {
+      const rules = KNOWLEDGE?.meta?.rules || {};
+      const radiusKm = Number(rules.default_radius_km || 35);
+      const center = KNOWLEDGE?.alpenlodge?.center || THIERSEE;
 
+      const q = String(questionText || "").toLowerCase();
+      const wantsEvents = /(event|events|veranstaltung|veranstaltungen|sportevent|sportevents|rennen|triathlon|marathon|lauf)/i.test(q);
+      const wantsRestaurants = /(restaurant|essen|kulinarik|wirtshaus|gasthaus|pizza|burger|cafe|café)/i.test(q);
+      const wantsSki = /(ski|skigebiet|snowboard|piste|lift|langlauf|rodel|schlitten)/i.test(q);
+      const wantsLakesPools = /(badesee|see|baden|schwimmbad|hallenbad|therme|sauna|wellness)/i.test(q);
+      const wantsHealth = /(arzt|ärzte|apotheke|notdienst|notruf|krankenhaus)/i.test(q);
+      const wantsHiking = /(wandern|wanderweg|tour|hike|winterwandern|schneeschuh)/i.test(q);
+      const wantsAmenities = /(ausstattung|amenities|fitness|sauna|wasch|trockner|wlan|wi-?fi|park|ladestation)/i.test(q);
+
+      const sources = KNOWLEDGE?.sources || {};
+
+      function pickSources() {
+        const out = [];
+        const add = (key) => {
+          const s = sources[key];
+          if (s?.source) out.push(`- ${s.label || key}: ${s.source}`);
+        };
+        if (wantsRestaurants) add("restaurants");
+        if (wantsEvents) add("events");
+        if (wantsSki) { add("ski_areas"); add("rental"); }
+        if (wantsLakesPools) add("lakes_pools_wellness");
+        if (wantsHealth) { add("doctors_pharmacies"); add("pharmacies"); }
+        if (wantsHiking) add("hiking");
+        if (out.length === 0) {
+          // default set
+          add("events");
+          add("restaurants");
+          add("hiking");
+        }
+        return out.join("\n");
+      }
+
+      function pickEventItems() {
+        const items = Array.isArray(KNOWLEDGE?.items) ? KNOWLEDGE.items : [];
+        const events = items.filter((it) => it && it.type === "event");
+        // Prefer 2026 (if present)
+        const e2026 = events.filter((e) => String(e.date_from || "").startsWith("2026"));
+        const chosen = (e2026.length ? e2026 : events).slice(0, 12);
+        if (!chosen.length) return "";
+        return chosen
+          .map((e) => {
+            const d = e.date_from ? (e.date_to && e.date_to !== e.date_from ? `${e.date_from} bis ${e.date_to}` : e.date_from) : "";
+            const where = e.location_name ? ` – ${e.location_name}` : "";
+            return `- ${e.name}${where}${d ? ` (${d})` : ""} | Quelle: ${e.source}`;
+          })
+          .join("\n");
+      }
+
+      function pickAmenities() {
+        const list = Array.isArray(KNOWLEDGE?.alpenlodge?.amenities) ? KNOWLEDGE.alpenlodge.amenities : [];
+        if (!list.length) return "";
+        return list
+          .slice(0, 20)
+          .map((a) => `- ${a.name}${a.details ? `: ${a.details}` : ""} | Quelle: ${a.source}`)
+          .join("\n");
+      }
+
+      const blocks = [];
+      if (wantsAmenities) {
+        const a = pickAmenities();
+        if (a) blocks.push(`Ausstattung Alpenlodge (verifiziert):\n${a}`);
+      }
+      if (wantsEvents) {
+        const e = pickEventItems();
+        if (e) blocks.push(`Sportevents/Veranstaltungen (verifiziert, Auswahl):\n${e}`);
+      }
+
+      const sourceBlock = pickSources();
+      if (sourceBlock) blocks.push(`Offizielle Quellen (verwenden, wenn Details fehlen):\n${sourceBlock}`);
+
+      const rulesBlock = [
+        "Du bist der Alpenlodge Concierge.",
+        "Regeln:",
+        "- NIEMALS erfinden. Keine frei erfundenen Orts-/Restaurantnamen.",
+        "- Empfehlungen sind erlaubt, aber IMMER mit Quelle (URL) pro Empfehlung/Eintrag.",
+        "- Wenn du etwas nicht sicher aus verifiziertem Wissen beantworten kannst: gib statt einer Behauptung die passende OFFIZIELLE Quelle (URL). Sage NICHT 'kann ich nicht bestätigen'.",
+        `- Standardradius: ${radiusKm} km ab Alpenlodge (Center: ${center.lat}, ${center.lon}).`,
+        "- Kurz, freundlich, konkret."
+      ].join("\n");
+
+      return `${rulesBlock}\n\n${blocks.join("\n\n")}\n\nSeite: ${page}. Locale: ${locale}.`;
+    }
+
+    if (!messages) {
+      const sys = buildSystemPrompt(userMessage);
       messages = [
         { role: "system", content: sys },
         { role: "user", content: userMessage || "Hallo" },
       ];
+    } else {
+      const lastUserFromClient = [...messages].reverse().find((m) => m.role === "user")?.content || userMessage || "";
+      // If client provided its own system message, we still prepend our strict rules + sources.
+      const existingSysIdx = messages.findIndex((m) => m.role === "system");
+      const prepend = { role: "system", content: buildSystemPrompt(lastUserFromClient) };
+      if (existingSysIdx >= 0) {
+        messages[existingSysIdx] = { role: "system", content: `${prepend.content}\n\n---\n\n${messages[existingSysIdx].content || ""}` };
+      } else {
+        messages = [prepend, ...messages];
+      }
     }
 
     // Quick weather path (keine OpenAI-Kosten, wenn eindeutig)
@@ -586,50 +888,37 @@ async function conciergeChatHandler(req, res) {
       }
     }
 
-// Safety: keine erfundenen Empfehlungen (Restaurants/Betriebe). Standard = block.
-if (!process.env.ALLOW_RECOMMENDATIONS && isRestaurantOrRecommendationQuestion(lastUser)) {
-  const msg = locale.startsWith("en")
-    ? "I can’t recommend specific restaurants or businesses without a verified list. If you tell me a name, I can help with directions/what to look for, or you can use the official Kufsteinerland listings."
-    : "Ich kann keine konkreten Restaurants/Betriebe empfehlen ohne verifizierte Liste. Wenn du mir einen Namen gibst, helfe ich mit Weg/Einordnung – oder nutze die offiziellen Kufsteinerland-Listings.";
-  return res.json({ reply: msg });
-}
-
     // OpenAI
-    const model = wantsMiniModel(body) ? OPENAI_MODEL_FALLBACK : OPENAI_MODEL_PRIMARY;
+    const modelPrimary = process.env.OPENAI_MODEL_PRIMARY || process.env.OPENAI_MODEL || "gpt-4.1-mini";
+    const modelFallback = process.env.OPENAI_MODEL_FALLBACK || (modelPrimary !== "gpt-4.1-mini" ? "gpt-4.1-mini" : "");
     const instructions = messages.find(m => m.role === "system")?.content || "";
     const input = messages
       .filter(m => m.role !== "system")
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n");
 
-let response;
-let modelUsed = model;
+    let response;
+    try {
+      response = await openai.responses.create({
+        model: modelPrimary,
+        instructions,
+        input,
+        temperature: 0.4,
+      });
+    } catch (e) {
+      if (modelFallback) {
+        response = await openai.responses.create({
+          model: modelFallback,
+          instructions,
+          input,
+          temperature: 0.4,
+        });
+      } else {
+        throw e;
+      }
+    }
 
-try {
-  response = await openai.responses.create({
-    model: modelUsed,
-    instructions,
-    input,
-    temperature: 0.2,
-  });
-} catch (e) {
-  // Fallback: wenn Primary zickt (Rate-Limit/5xx/Netz), probiere Mini.
-  const status = e?.status || e?.response?.status;
-  const isRetryable = status === 429 || (status >= 500 && status < 600) || !status;
-  if (modelUsed === OPENAI_MODEL_PRIMARY && isRetryable && OPENAI_MODEL_FALLBACK) {
-    modelUsed = OPENAI_MODEL_FALLBACK;
-    response = await openai.responses.create({
-      model: modelUsed,
-      instructions,
-      input,
-      temperature: 0.2,
-    });
-  } else {
-    throw e;
-  }
-}
-
-res.json({ reply: response?.output_text || "", modelUsed });
+    res.json({ reply: response.output_text || "" });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
     const status = err?.status || err?.response?.status;
@@ -644,13 +933,14 @@ res.json({ reply: response?.output_text || "", modelUsed });
 
 
 // ---------------- Smoobu: "alles" verfügbar (generischer Proxy + Komfort-Endpunkte) ----------------
-// Public = nur read-only / safe. Alles andere nur mit ADMIN_TOKEN (Header: X-Admin-Token oder Authorization: Bearer ...)
+// Generic Smoobu proxy: supports ALL endpoints.
+// If ADMIN_TOKEN is set, you can still gate write/admin calls by sending it.
 
 function isPublicSmoobuAllowed(method, path) {
   if (method === "GET") {
     if (path === "/api/apartments" || path.startsWith("/api/apartments/")) return true;
     if (path.startsWith("/api/rates")) return true; // optional
-    if (path === "/api/reservations" || path.startsWith("/api/reservations/")) return true; // read-only booking lookup
+    if (path === "/api/bookings" || path.startsWith("/api/bookings/")) return true; // read-only booking lookup
   }
   if (method === "POST" && path === "/booking/checkApartmentAvailability") return true;
   return false;
@@ -669,7 +959,10 @@ app.all("/api/smoobu/raw/:path(*)", async (req, res) => {
     const admin = requireAdmin(req);
 
     if (!admin && !isPublicSmoobuAllowed(method, path)) {
-      return res.status(403).json({ error: "forbidden", hint: "Set ADMIN_TOKEN in Render and send it as X-Admin-Token for write/admin Smoobu calls." });
+      return res.status(403).json({
+        error: "forbidden",
+        hint: "This instance is gated. Send ADMIN_TOKEN via X-Admin-Token or Authorization: Bearer ...",
+      });
     }
 
     const jsonBody = (method === "GET" || method === "HEAD") ? undefined : (req.body || undefined);
@@ -703,66 +996,9 @@ app.get("/api/smoobu/apartments/:id", async (req, res) => {
   }
 });
 
-// Preferred naming (Smoobu docs): /api/reservations
-app.get("/api/smoobu/reservations", async (req, res) => {
-  try {
-    const data = await smoobuFetch("/api/reservations", { method: "GET", query: req.query });
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Smoobu reservations list error:", err);
-    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
-  }
-});
-
-app.get("/api/smoobu/reservations/:id", async (req, res) => {
-  try {
-    const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Smoobu reservation details error:", err);
-    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
-  }
-});
-
-app.post("/api/smoobu/reservations", async (req, res) => {
-  if (!forbidUnlessAdmin(req, res)) return;
-  try {
-    const data = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: req.body || {} });
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Smoobu create reservation error:", err);
-    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
-  }
-});
-
-app.patch("/api/smoobu/reservations/:id", async (req, res) => {
-  if (!forbidUnlessAdmin(req, res)) return;
-  try {
-    const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Smoobu update reservation error:", err);
-    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
-  }
-});
-
-app.delete("/api/smoobu/reservations/:id", async (req, res) => {
-  if (!forbidUnlessAdmin(req, res)) return;
-  try {
-    const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "DELETE" });
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Smoobu delete reservation error:", err);
-    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
-  }
-});
-
 app.get("/api/smoobu/bookings", async (req, res) => {
   try {
-    const data = await smoobuFetch("/api/reservations", { method: "GET", query: req.query });
+    const data = await smoobuFetch("/api/bookings", { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu bookings list error:", err);
@@ -773,7 +1009,7 @@ app.get("/api/smoobu/bookings", async (req, res) => {
 app.get("/api/smoobu/bookings/:id", async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu booking details error:", err);
@@ -781,17 +1017,19 @@ app.get("/api/smoobu/bookings/:id", async (req, res) => {
   }
 });
 
-// Write endpoints (require ADMIN_TOKEN)
+// Write endpoints (if ADMIN_TOKEN is set, they are gated)
 function forbidUnlessAdmin(req, res) {
+  // If no ADMIN_TOKEN is set, do NOT block (default allow).
+  if (!ADMIN_TOKEN) return false;
   if (requireAdmin(req)) return true;
-  res.status(403).json({ error: "forbidden", hint: "Missing/invalid ADMIN_TOKEN. Send header X-Admin-Token or Authorization: Bearer ..." });
+  res.status(403).json({ error: "forbidden", hint: "Missing/invalid ADMIN_TOKEN." });
   return false;
 }
 
 app.post("/api/smoobu/bookings", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
-    const data = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: req.body || {} });
+    const data = await smoobuFetch("/api/bookings", { method: "POST", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu create booking error:", err);
@@ -803,7 +1041,7 @@ app.patch("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu update booking error:", err);
@@ -815,7 +1053,7 @@ app.delete("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "DELETE" });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu delete booking error:", err);
