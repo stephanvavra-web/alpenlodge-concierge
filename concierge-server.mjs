@@ -381,7 +381,7 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     // Optional: pass the total price we quoted (Smoobu may still recalc depending on settings)
     if (offer.price != null) reservationPayload.price = offer.price;
 
-    const created = await smoobuFetch("POST", "/api/reservations", reservationPayload);
+    const created = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: reservationPayload });
 
     return res.json({
       status: "created",
