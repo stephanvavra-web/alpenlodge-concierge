@@ -354,10 +354,11 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
     method: "POST",
-    jsonBody: payload,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 
-const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
+  const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
   const prices = avail?.prices || {};
 
   const offerPayloads = [];
@@ -562,18 +563,29 @@ async function conciergeChatHandler(req, res) {
     }
 
     // OpenAI
-    const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-      messages,
+    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+    const instructions = messages.find(m => m.role === "system")?.content || "";
+    const input = messages
+      .filter(m => m.role !== "system")
+      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .join("\n\n");
+
+    const response = await openai.responses.create({
+      model,
+      instructions,
+      input,
       temperature: 0.4,
     });
 
-    res.json({ reply: completion.choices?.[0]?.message?.content || "" });
+    res.json({ reply: response.output_text || "" });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
+    const status = err?.status || err?.response?.status;
+    const msg = err?.message || err?.response?.data?.error?.message || String(err);
     res.status(500).json({
-      error: "backend error",
-      hint: "Check Render logs + OPENAI_API_KEY, and for Smoobu routes set SMOOBU_API_KEY & SMOOBU_CUSTOMER_ID.",
+      error: "backend_error",
+      details: { status, message: msg },
+      hint: "If chat fails: verify OPENAI_API_KEY + OPENAI_MODEL. If Smoobu fails: verify SMOOBU_API_KEY + SMOOBU_CUSTOMER_ID.",
     });
   }
 }
