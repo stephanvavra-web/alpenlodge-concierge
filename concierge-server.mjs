@@ -354,11 +354,10 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    jsonBody: payload,
   });
 
-  const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
+const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
   const prices = avail?.prices || {};
 
   const offerPayloads = [];
