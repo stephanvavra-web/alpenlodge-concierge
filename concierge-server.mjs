@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import crypto from "crypto";
 import OpenAI from "openai";
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
@@ -7,6 +8,10 @@ const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 // API Docs: https://docs.smoobu.com/  (Auth-Header: Api-Key)
 const SMOOBU_API_KEY = process.env.SMOOBU_API_KEY;
 const SMOOBU_CUSTOMER_ID = process.env.SMOOBU_CUSTOMER_ID; // int (dein Smoobu User/Customer ID)
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/admin Smoobu routes
+const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
+const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
+const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
 const SMOOBU_BASE = "https://login.smoobu.com";
 
 // Mini-Cache (damit wir Smoobu nicht spammen)
@@ -14,6 +19,84 @@ const cache = {
   apartments: { ts: 0, ttlMs: 5 * 60 * 1000, value: null },
   availability: new Map(), // key -> {ts, ttlMs, value}
 };
+
+// ---------------- Security helpers ----------------
+// ---------------- Public booking offer tokens (anti-abuse + integrity) ----------------
+// Flow: /concierge/availability returns short-lived offerToken per apartment.
+//       /concierge/book consumes offerToken + guest details -> creates Smoobu reservation.
+const bookingRate = new Map(); // ip -> {windowStartMs,count}
+
+function rateLimit(req, res, next) {
+  const ip =
+    (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() ||
+    req.socket?.remoteAddress ||
+    "unknown";
+  const now = Date.now();
+  const winMs = 60 * 1000;
+  const bucket = bookingRate.get(ip) || { windowStartMs: now, count: 0 };
+  if (now - bucket.windowStartMs >= winMs) {
+    bucket.windowStartMs = now;
+    bucket.count = 0;
+  }
+  bucket.count += 1;
+  bookingRate.set(ip, bucket);
+  if (bucket.count > BOOKING_RATE_LIMIT_PER_MIN) {
+    return res.status(429).json({ error: "rate_limited", hint: "Please try again in a minute." });
+  }
+  next();
+}
+
+function b64urlEncode(str) {
+  return Buffer.from(str, "utf8").toString("base64url");
+}
+function b64urlDecode(b64url) {
+  return Buffer.from(b64url, "base64url").toString("utf8");
+}
+
+function signOffer(payloadObj) {
+  if (!BOOKING_TOKEN_SECRET) throw new Error("Missing BOOKING_TOKEN_SECRET");
+  const payload = JSON.stringify(payloadObj);
+  const payloadB64 = b64urlEncode(payload);
+  const sig = crypto.createHmac("sha256", BOOKING_TOKEN_SECRET).update(payloadB64).digest("base64url");
+  return `${payloadB64}.${sig}`;
+}
+
+function verifyOffer(token) {
+  if (!BOOKING_TOKEN_SECRET) throw new Error("Missing BOOKING_TOKEN_SECRET");
+  const parts = (token || "").split(".");
+  if (parts.length !== 2) throw new Error("Bad offer token");
+  const [payloadB64, sig] = parts;
+  const expected = crypto.createHmac("sha256", BOOKING_TOKEN_SECRET).update(payloadB64).digest("base64url");
+  if (sig.length !== expected.length) throw new Error("Invalid offer token");
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) throw new Error("Invalid offer token");
+  const payload = JSON.parse(b64urlDecode(payloadB64));
+  if (!payload || typeof payload !== "object") throw new Error("Invalid offer token payload");
+  if (typeof payload.exp !== "number" || Date.now() > payload.exp) throw new Error("Offer expired");
+  return payload;
+}
+
+function getAuthToken(req) {
+  const h = req.headers || {};
+  const bearer = typeof h.authorization === "string" ? h.authorization : "";
+  if (bearer.toLowerCase().startsWith("bearer ")) return bearer.slice(7).trim();
+  const x = typeof h["x-admin-token"] === "string" ? h["x-admin-token"] : "";
+  return (x || "").trim();
+}
+
+function requireAdmin(req) {
+  if (!ADMIN_TOKEN) return false;
+  return getAuthToken(req) === ADMIN_TOKEN;
+}
+
+function ensureSmoobuPath(p) {
+  // Only allow Smoobu API paths we expect
+  // Valid prefixes per Smoobu docs: /api/* and /booking/*
+  if (typeof p !== "string") return null;
+  if (!p.startsWith("/")) p = "/" + p;
+  if (p.startsWith("/api/") || p.startsWith("/booking/")) return p;
+  return null;
+}
+
 
 function now() { return Date.now(); }
 
@@ -34,7 +117,7 @@ function availabilityCacheSet(key, value, ttlMs = 30 * 1000) {
   cache.availability.set(key, { ts: now(), ttlMs, value });
 }
 
-async function smoobuFetch(path, { method = "GET", jsonBody, timeoutMs = 15000 } = {}) {
+async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 15000 } = {}) {
   if (!SMOOBU_API_KEY) {
     const e = new Error("SMOOBU_API_KEY missing");
     e.status = 500;
@@ -50,7 +133,15 @@ async function smoobuFetch(path, { method = "GET", jsonBody, timeoutMs = 15000 }
       headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(jsonBody);
     }
-    const r = await fetch(`${SMOOBU_BASE}${path}`, init);
+    const url = new URL(`${SMOOBU_BASE}${path}`);
+    if (query && typeof query === "object") {
+      for (const [k, v] of Object.entries(query)) {
+        if (v === undefined || v === null || v === "") continue;
+        if (Array.isArray(v)) v.forEach((vv) => url.searchParams.append(k, String(vv)));
+        else url.searchParams.set(k, String(v));
+      }
+    }
+    const r = await fetch(url.toString(), init);
     const text = await r.text();
     let data;
     try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
@@ -188,7 +279,45 @@ async function smoobuAvailabilityHandler(req, res) {
     });
 
     availabilityCacheSet(cacheKey, data);
-    res.json(data);
+
+// Build short-lived offer tokens so the public "book" endpoint can be protected without exposing ADMIN_TOKEN.
+let offers = [];
+try {
+  const exp = Date.now() + 10 * 60 * 1000; // 10 minutes
+  const available = Array.isArray(data.availableApartments) ? data.availableApartments : [];
+  offers = available
+    .map((apartmentId) => {
+      const priceInfo = data.prices?.[apartmentId] || null;
+      const offerPayload = {
+        apartmentId,
+        arrivalDate,
+        departureDate,
+        guests: Number(guests || 0) || null,
+        price: priceInfo?.price ?? null,
+        currency: priceInfo?.currency ?? null,
+        exp,
+      };
+      const offerToken = signOffer(offerPayload);
+      return {
+        apartmentId,
+        price: offerPayload.price,
+        currency: offerPayload.currency,
+        offerToken,
+      };
+    })
+    .filter(Boolean);
+} catch (e) {
+  // If BOOKING_TOKEN_SECRET is missing we still return availability, just without booking offers.
+  offers = [];
+}
+
+res.json({
+  ...data,
+  offers,
+  offerTtlSeconds: 600,
+  channelIdDefault: SMOOBU_CHANNEL_ID,
+  bookingHint: offers.length ? "Use POST /concierge/book with offerToken + guest details." : "Set BOOKING_TOKEN_SECRET to enable booking offers.",
+});
   } catch (err) {
     console.error("❌ Smoobu availability error:", err);
     res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
@@ -197,8 +326,75 @@ async function smoobuAvailabilityHandler(req, res) {
 
 app.post("/api/smoobu/availability", smoobuAvailabilityHandler);
 // Aliases from the design doc / older frontend variants
-app.post("/concierge/availability", smoobuAvailabilityHandler);
-app.post("/api/availability", smoobuAvailabilityHandler);
+app.post("/concierge/availability", rateLimit, smoobuAvailabilityHandler);
+app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
+app.post("/concierge/book", rateLimit, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const offerToken = typeof body.offerToken === "string" ? body.offerToken.trim() : "";
+    if (!offerToken) return res.status(400).json({ error: "offerToken required" });
+
+    const offer = verifyOffer(offerToken);
+
+    // Guest details
+    const firstName = (body.firstName || "").toString().trim();
+    const lastName = (body.lastName || "").toString().trim();
+    const email = (body.email || "").toString().trim();
+    const phone = (body.phone || "").toString().trim();
+
+    if (!firstName || !lastName || !email) {
+      return res.status(400).json({ error: "firstName, lastName, email required" });
+    }
+
+    // Guest counts (optional)
+    const adults = Number(body.adults ?? offer.guests ?? 1);
+    const children = Number(body.children ?? 0);
+    if (!Number.isFinite(adults) || adults < 0 || !Number.isFinite(children) || children < 0) {
+      return res.status(400).json({ error: "adults/children must be numbers >= 0" });
+    }
+    if (offer.guests && adults + children !== Number(offer.guests)) {
+      return res.status(400).json({ error: "adults + children must equal guests from offer" });
+    }
+
+    const notice = (body.notice || body.note || "").toString().trim();
+    const language = (body.language || body.lang || "de").toString().trim();
+
+    if (!SMOOBU_API_KEY) return res.status(500).json({ error: "SMOOBU_API_KEY missing" });
+
+    const channelId = SMOOBU_CHANNEL_ID;
+
+    const reservationPayload = {
+      arrivalDate: offer.arrivalDate,
+      departureDate: offer.departureDate,
+      apartmentId: Number(offer.apartmentId),
+      channelId,
+      firstName,
+      lastName,
+      email,
+      phone,
+      adults,
+      children,
+      notice,
+      language,
+    };
+
+    // Optional: pass the total price we quoted (Smoobu may still recalc depending on settings)
+    if (offer.price != null) reservationPayload.price = offer.price;
+
+    const created = await smoobuFetch("POST", "/api/reservations", reservationPayload);
+
+    return res.json({
+      status: "created",
+      reservationId: created?.id ?? null,
+      data: created ?? null,
+    });
+  } catch (err) {
+    console.error("❌ Smoobu booking error:", err);
+    const details = err.details || null;
+    const status = err.status || 500;
+    res.status(status).json({ error: "booking_error", details });
+  }
+});
 
 async function conciergeChatHandler(req, res) {
   try {
@@ -266,6 +462,130 @@ async function conciergeChatHandler(req, res) {
     });
   }
 }
+
+
+// ---------------- Smoobu: "alles" verfügbar (generischer Proxy + Komfort-Endpunkte) ----------------
+// Public = nur read-only / safe. Alles andere nur mit ADMIN_TOKEN (Header: X-Admin-Token oder Authorization: Bearer ...)
+
+function isPublicSmoobuAllowed(method, path) {
+  if (method === "GET") {
+    if (path === "/api/apartments" || path.startsWith("/api/apartments/")) return true;
+    if (path.startsWith("/api/rates")) return true; // optional
+    if (path === "/api/bookings" || path.startsWith("/api/bookings/")) return true; // read-only booking lookup
+  }
+  if (method === "POST" && path === "/booking/checkApartmentAvailability") return true;
+  return false;
+}
+
+// Generic pass-through (supports ALL Smoobu endpoints)
+// Example: GET  /api/smoobu/raw/api/apartments
+//          POST /api/smoobu/raw/booking/checkApartmentAvailability
+app.all("/api/smoobu/raw/:path(*)", async (req, res) => {
+  try {
+    const raw = req.params.path || "";
+    const path = ensureSmoobuPath(raw);
+    if (!path) return res.status(400).json({ error: "invalid_path", hint: "Path must start with /api/ or /booking/." });
+
+    const method = (req.method || "GET").toUpperCase();
+    const admin = requireAdmin(req);
+
+    if (!admin && !isPublicSmoobuAllowed(method, path)) {
+      return res.status(403).json({ error: "forbidden", hint: "Set ADMIN_TOKEN in Render and send it as X-Admin-Token for write/admin Smoobu calls." });
+    }
+
+    const jsonBody = (method === "GET" || method === "HEAD") ? undefined : (req.body || undefined);
+    const data = await smoobuFetch(path, { method, jsonBody, query: req.query });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu raw proxy error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+// Komfort-Endpunkte (damit du nicht immer den /raw Weg nutzen musst)
+app.get("/api/smoobu/rates", async (req, res) => {
+  try {
+    const data = await smoobuFetch("/api/rates", { method: "GET", query: req.query });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu rates error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.get("/api/smoobu/apartments/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const data = await smoobuFetch(`/api/apartments/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu apartment details error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.get("/api/smoobu/bookings", async (req, res) => {
+  try {
+    const data = await smoobuFetch("/api/bookings", { method: "GET", query: req.query });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu bookings list error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.get("/api/smoobu/bookings/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu booking details error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+// Write endpoints (require ADMIN_TOKEN)
+function forbidUnlessAdmin(req, res) {
+  if (requireAdmin(req)) return true;
+  res.status(403).json({ error: "forbidden", hint: "Missing/invalid ADMIN_TOKEN. Send header X-Admin-Token or Authorization: Bearer ..." });
+  return false;
+}
+
+app.post("/api/smoobu/bookings", async (req, res) => {
+  if (!forbidUnlessAdmin(req, res)) return;
+  try {
+    const data = await smoobuFetch("/api/bookings", { method: "POST", jsonBody: req.body || {} });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu create booking error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.patch("/api/smoobu/bookings/:id", async (req, res) => {
+  if (!forbidUnlessAdmin(req, res)) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu update booking error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.delete("/api/smoobu/bookings/:id", async (req, res) => {
+  if (!forbidUnlessAdmin(req, res)) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "DELETE" });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu delete booking error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
 
 app.post("/api/concierge", conciergeChatHandler);
 // Alias from the API design doc
