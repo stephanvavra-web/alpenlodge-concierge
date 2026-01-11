@@ -1,133 +1,8 @@
 import express from "express";
 import cors from "cors";
 import crypto from "crypto";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import OpenAI from "openai";
-
-// Fallback center (used only if knowledge file missing)
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
-
-// ---------------- Knowledge (single file) ----------------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const KNOWLEDGE_FILE = process.env.KNOWLEDGE_FILE || path.join(__dirname, "knowledge", "verified.json");
-
-let KNOWLEDGE = null;
-
-// Extract URLs from model output so the UI can display them separately as clickable sources.
-function extractUrls(text) {
-  if (!text) return [];
-  const re = /https?:\/\/[^\s)\]>"']+/gi;
-  const found = String(text).match(re) || [];
-  const uniq = [];
-  const seen = new Set();
-  for (const u of found) {
-    const url = u.replace(/[.,;:]+$/g, "");
-    if (!seen.has(url)) {
-      seen.add(url);
-      uniq.push(url);
-    }
-    if (uniq.length >= 12) break;
-  }
-  return uniq;
-}
-
-
-function labelForUrl(url) {
-  const u = String(url || "");
-  const sources = KNOWLEDGE?.sources || {};
-  for (const [k, s] of Object.entries(sources)) {
-    if (s?.source && s.source === u) return s.label || k;
-  }
-
-  // Friendly domain labels (no invention, just mapping domain -> brand label)
-  try {
-    const host = new URL(u).hostname.replace(/^www\./, "");
-    const map = [
-      [/kufstein\.com$/i, "Kufsteinerland (offiziell)"],
-      [/kitzbuehel\.com$/i, "Kitzbühel (offiziell)"],
-      [/skiwelt\.at$/i, "SkiWelt Wilder Kaiser – Brixental (offiziell)"],
-      [/alpenbahnen-spitzingsee\.de$/i, "Spitzingsee Alpenbahnen (offiziell)"],
-      [/oesterreich\.gv\.at$/i, "Österreich.gv.at (offiziell)"],
-      [/apothekenindex\.at$/i, "Apothekenindex (Verzeichnis)"],
-      [/tegernsee-schliersee\.de$/i, "Tegernsee–Schliersee (offiziell)"],
-      [/hahnenkamm\.com$/i, "Hahnenkamm (offiziell)"],
-    ];
-    for (const [re, label] of map) if (re.test(host)) return label;
-    return host;
-  } catch {
-    return "Quelle";
-  }
-}
-
-function buildLinkObjects(urls) {
-  const uniq = [];
-  const seen = new Set();
-  for (const u of (Array.isArray(urls) ? urls : [])) {
-    const url = String(u || "").trim();
-    if (!url) continue;
-    if (seen.has(url)) continue;
-    seen.add(url);
-    uniq.push({ label: labelForUrl(url), url });
-    if (uniq.length >= 10) break;
-  }
-  return uniq;
-}
-
-function pickFallbackSources(questionText) {
-  const q = String(questionText || "").toLowerCase();
-  const sources = KNOWLEDGE?.sources || {};
-  const want = {
-    restaurants: /(restaurant|essen|kulinarik|wirtshaus|gasthaus|pizza|burger|cafe|café)/i.test(q),
-    events: /(event|events|veranstaltung|veranstaltungen|sportevent|sportevents|rennen|triathlon|marathon|lauf)/i.test(q),
-    ski_areas: /(ski|skigebiet|snowboard|piste|lift|langlauf|rodel|schlitten)/i.test(q),
-    rental: /(verleih|miete|rent|rental|ski.*verleih|snowboard.*verleih|schlitten)/i.test(q),
-    lakes_pools_wellness: /(badesee|see|baden|schwimmbad|hallenbad|therme|sauna|wellness)/i.test(q),
-    doctors_pharmacies: /(arzt|ärzte|apotheke|notdienst|notruf|krankenhaus)/i.test(q),
-    hiking: /(wandern|wanderweg|tour|hike|winterwandern|schneeschuh)/i.test(q),
-  };
-
-  const keys = [];
-  if (want.restaurants) keys.push("restaurants");
-  if (want.events) keys.push("events");
-  if (want.ski_areas) keys.push("ski_areas");
-  if (want.rental) keys.push("rental");
-  if (want.lakes_pools_wellness) keys.push("lakes_pools_wellness");
-  if (want.doctors_pharmacies) keys.push("doctors_pharmacies", "pharmacies");
-  if (want.hiking) keys.push("hiking");
-  if (keys.length === 0) keys.push("events", "restaurants", "hiking");
-
-  const out = [];
-  const seen = new Set();
-  for (const k of keys) {
-    const s = sources[k];
-    const url = s?.source;
-    if (url && !seen.has(url)) {
-      seen.add(url);
-      out.push({ label: s.label || k, url });
-    }
-  }
-  return out.slice(0, 6);
-}
-function safeReadJson(filePath) {
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function loadKnowledge() {
-  KNOWLEDGE = safeReadJson(KNOWLEDGE_FILE);
-  if (!KNOWLEDGE) {
-    console.warn("⚠️  Knowledge file missing/unreadable:", KNOWLEDGE_FILE);
-  }
-}
-
-loadKnowledge();
 
 // ---------------- Smoobu (läuft komplett über Render – kein PHP nötig) ----------------
 // API Docs: https://docs.smoobu.com/  (Auth-Header: Api-Key)
@@ -209,10 +84,9 @@ function getAuthToken(req) {
 }
 
 function requireAdmin(req) {
-  // Public instance: no ADMIN gate (user requested). Keep secrets on server only.
-  return true;
+  if (!ADMIN_TOKEN) return false;
+  return getAuthToken(req) === ADMIN_TOKEN;
 }
-
 
 function ensureSmoobuPath(p) {
   // Only allow Smoobu API paths we expect
@@ -221,66 +95,66 @@ function ensureSmoobuPath(p) {
   if (!p.startsWith("/")) p = "/" + p;
   if (p.startsWith("/api/") || p.startsWith("/booking/")) return p;
   return null;
+
+// -------- Date helpers (accepts: YYYY-MM-DD, D.M.YY(YY), DDMMYY(YY), D/M/YY(YY), D-M-YY(YY)) --------
+function pad2(n){ return String(n).padStart(2,"0"); }
+
+function toIsoDate(y,m,d){
+  const yy = Number(y), mm = Number(m), dd = Number(d);
+  if (!Number.isFinite(yy) || !Number.isFinite(mm) || !Number.isFinite(dd)) return null;
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  return `${yy}-${pad2(mm)}-${pad2(dd)}`;
 }
 
+function normalizeYear(y){
+  let yy = Number(y);
+  if (!Number.isFinite(yy)) return null;
+  if (yy < 100){
+    // 00-69 => 2000-2069, 70-99 => 1970-1999 (pragmatisch)
+    yy = yy <= 69 ? 2000 + yy : 1900 + yy;
+  }
+  if (yy < 1900 || yy > 2100) return null;
+  return yy;
+}
 
+function parseFlexibleDateToIso(input){
+  if (typeof input !== "string") return null;
+  const s = input.trim();
+  if (!s) return null;
 
-// ---------------- Date parsing (flexible user input) ----------------
-// Accepts: YYYY-MM-DD, D.M.YYYY, D.M.YY, DDMMYYYY, DDMMYY, D-M-YYYY, D/M/YY
-function pad2(n) { return String(n).padStart(2, "0"); }
+  // already ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-function parseDateFlexible(input) {
-  const s0 = String(input || "").trim();
-  if (!s0) return null;
-
-  // ISO
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s0)) return s0;
-
-  // D.M.YYYY or D.M.YY (also with / or -)
-  let m = s0.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2}|\d{4})$/);
-  if (m) {
-    let d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
-    if (y < 100) y = 2000 + y; // booking use-case
-    if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
-    return `${y}-${pad2(mo)}-${pad2(d)}`;
+  // D.M.YY(YY) or D/M/YY(YY) or D-M-YY(YY)
+  let m = s.match(/^\s*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})\s*$/);
+  if (m){
+    const d = Number(m[1]), mo = Number(m[2]), y = normalizeYear(m[3]);
+    if (!y) return null;
+    return toIsoDate(y, mo, d);
   }
 
-  // DDMMYYYY / DDMMYY
-  m = s0.match(/^(\d{2})(\d{2})(\d{2}|\d{4})$/);
-  if (m) {
-    const d = Number(m[1]), mo = Number(m[2]);
-    let y = Number(m[3]);
-    if (y < 100) y = 2000 + y;
-    if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
-    return `${y}-${pad2(mo)}-${pad2(d)}`;
+  // DDMMYY or DDMMYYYY (also allow DDM MYY without separators)
+  m = s.match(/^\s*(\d{2})(\d{2})(\d{2}|\d{4})\s*$/);
+  if (m){
+    const d = Number(m[1]), mo = Number(m[2]), y = normalizeYear(m[3]);
+    if (!y) return null;
+    return toIsoDate(y, mo, d);
   }
 
   return null;
 }
 
-// Replace date-like fragments in free text with "original (YYYY-MM-DD)" to help the model.
-function normalizeDateExpressionsInText(text) {
-  const t = String(text || "");
-  if (!t) return t;
-
-  // 1) D.M.YY or D.M.YYYY
-  const r1 = /\b(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})\b/g;
-  let out = t.replace(r1, (full, d, m, y) => {
-    const iso = parseDateFlexible(full);
-    if (!iso) return full;
-    return `${full} (${iso})`;
-  });
-
-  // 2) DDMMYY / DDMMYYYY (only if it's clearly a date token, surrounded by word boundaries)
-  const r2 = /\b(\d{6}|\d{8})\b/g;
-  out = out.replace(r2, (full) => {
-    const iso = parseDateFlexible(full);
-    if (!iso) return full;
-    return `${full} (${iso})`;
-  });
-
-  return out;
+function normalizeIsoRange(arrivalRaw, departureRaw){
+  const arrival = parseFlexibleDateToIso(arrivalRaw);
+  const departure = parseFlexibleDateToIso(departureRaw);
+  if (!arrival || !departure) return { arrival: null, departure: null };
+  if (departure <= arrival) return { arrival: null, departure: null };
+  return { arrival, departure };
 }
+
+
+}
+
 
 function now() { return Date.now(); }
 
@@ -301,6 +175,23 @@ function availabilityCacheSet(key, value, ttlMs = 30 * 1000) {
   cache.availability.set(key, { ts: now(), ttlMs, value });
 }
 
+
+function normalizeSmoobuQuery(query){
+  if (!query || typeof query !== "object") return query;
+  const q = { ...query };
+
+  // Accept apartments as: apartments=1&apartments=2, apartments[]=1..., apartments="1,2"
+  const a = q["apartments[]"] ?? q.apartments;
+  if (a !== undefined) {
+    delete q.apartments;
+    delete q["apartments[]"];
+    const arr = Array.isArray(a) ? a : String(a).split(",").map(s => s.trim()).filter(Boolean);
+    q["apartments[]"] = arr;
+  }
+
+  return q;
+}
+
 async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 15000 } = {}) {
   if (!SMOOBU_API_KEY) {
     const e = new Error("SMOOBU_API_KEY missing");
@@ -318,6 +209,7 @@ async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 
       init.body = JSON.stringify(jsonBody);
     }
     const url = new URL(`${SMOOBU_BASE}${path}`);
+    query = normalizeSmoobuQuery(query);
     if (query && typeof query === "object") {
       for (const [k, v] of Object.entries(query)) {
         if (v === undefined || v === null || v === "") continue;
@@ -431,65 +323,6 @@ app.get("/api/smoobu/apartments", smoobuApartmentsHandler);
 app.get("/concierge/apartments", smoobuApartmentsHandler);
 app.get("/api/apartments", smoobuApartmentsHandler);
 
-// 0) Quick self-test (no side effects; read/availability only)
-// Call: GET /api/smoobu/selftest
-app.get("/api/smoobu/selftest", async (req, res) => {
-  const checks = [];
-  const startedAt = Date.now();
-
-  const add = async (name, fn) => {
-    const t0 = Date.now();
-    try {
-      const result = await fn();
-      checks.push({ name, ok: true, ms: Date.now() - t0, sample: result });
-    } catch (e) {
-      checks.push({
-        name,
-        ok: false,
-        ms: Date.now() - t0,
-        error: { message: e?.message || String(e), status: e?.status || null, details: e?.details || null }
-      });
-    }
-  };
-
-  // Basic env presence
-  const env = {
-    SMOOBU_API_KEY: Boolean(process.env.SMOOBU_API_KEY),
-    SMOOBU_CUSTOMER_ID: Boolean(process.env.SMOOBU_CUSTOMER_ID),
-    BOOKING_TOKEN_SECRET: Boolean(process.env.BOOKING_TOKEN_SECRET),
-  };
-
-  await add("GET /api/apartments", async () => {
-    const d = await smoobuFetch("/api/apartments", { method: "GET" });
-    const a = Array.isArray(d?.apartments) ? d.apartments : (Array.isArray(d) ? d : []);
-    return { apartmentsCount: a.length, firstApartmentId: a[0]?.id ?? a[0]?.apartmentId ?? null };
-  });
-
-  await add("POST /booking/checkApartmentAvailability (next week, 2 nights)", async () => {
-    if (!process.env.SMOOBU_CUSTOMER_ID) throw Object.assign(new Error("SMOOBU_CUSTOMER_ID missing"), { status: 500 });
-    const today = new Date();
-    const arr = new Date(today.getTime() + 7 * 24 * 3600 * 1000);
-    const dep = new Date(today.getTime() + 9 * 24 * 3600 * 1000);
-    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const payload = { customerId: Number(process.env.SMOOBU_CUSTOMER_ID), arrivalDate: iso(arr), departureDate: iso(dep), apartments: [], guests: 2 };
-    const d = await smoobuFetch("/booking/checkApartmentAvailability", { method: "POST", jsonBody: payload });
-    const avail = Array.isArray(d?.availableApartments) ? d.availableApartments.length : null;
-    return { availableApartments: avail, currency: d?.currency || null };
-  });
-
-  await add("GET /api/rates (if enabled)", async () => {
-    const d = await smoobuFetch("/api/rates", { method: "GET", query: { limit: 1 } });
-    return { ok: true, sampleKeys: Object.keys(d || {}).slice(0, 10) };
-  });
-
-  await add("GET /api/bookings (if enabled)", async () => {
-    const d = await smoobuFetch("/api/bookings", { method: "GET", query: { limit: 1 } });
-    return { ok: true, sampleKeys: Object.keys(d || {}).slice(0, 10) };
-  });
-
-  res.json({ ok: checks.every(c => c.ok), env, msTotal: Date.now() - startedAt, checks });
-});
-
 // 2) Availability + price (Smoobu Booking API)
 // Request body (min): { arrivalDate: "YYYY-MM-DD", departureDate: "YYYY-MM-DD", apartments?: [1,2], guests?: 2, discountCode?: "..." }
 async function smoobuAvailabilityHandler(req, res) {
@@ -499,18 +332,12 @@ async function smoobuAvailabilityHandler(req, res) {
     }
 
     const { arrivalDate, departureDate, apartments, guests, discountCode } = req.body || {};
-    const arrivalIso = parseDateFlexible(arrivalDate);
-    const departureIso = parseDateFlexible(departureDate);
-    if (!arrivalIso || !departureIso) {
-      return res.status(400).json({
-        error: "bad_dates",
-        hint: "arrivalDate & departureDate required. Formats: YYYY-MM-DD, D.M.YY, D.M.YYYY, DDMMYY, DDMMYYYY, D-M-YY.",
-      });
+    if (!arrivalDate || !departureDate) {
+      return res.status(400).json({ error: "arrivalDate and departureDate required (YYYY-MM-DD or 12.1.26 etc.)" });
     }
 
     const payload = {
-      arrivalDate: arrivalIso,
-      departureDate: departureIso,
+      arrivalDate,
       departureDate,
       apartments: Array.isArray(apartments) ? apartments : [],
       customerId: Number(SMOOBU_CUSTOMER_ID),
@@ -529,7 +356,7 @@ async function smoobuAvailabilityHandler(req, res) {
 
     availabilityCacheSet(cacheKey, data);
 
-    // Build short-lived offer tokens so the public "book" endpoint can be protected without exposing secrets.
+// Build short-lived offer tokens so the public "book" endpoint can be protected without exposing ADMIN_TOKEN.
 let offers = [];
 try {
   const exp = Date.now() + 10 * 60 * 1000; // 10 minutes
@@ -539,8 +366,8 @@ try {
       const priceInfo = data.prices?.[apartmentId] || null;
       const offerPayload = {
         apartmentId,
-        arrivalDate: arrivalIso,
-        departureDate: departureIso,
+        arrivalDate,
+        departureDate,
         guests: Number(guests || 0) || null,
         price: priceInfo?.price ?? null,
         currency: priceInfo?.currency ?? null,
@@ -581,14 +408,6 @@ app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
 async function computeOfferPayloads(arrivalDate, departureDate, guests) {
-  const arrivalIso = parseDateFlexible(arrivalDate);
-  const departureIso = parseDateFlexible(departureDate);
-  if (!arrivalIso || !departureIso) {
-    const err = new Error("Bad arrival/departure date. Use YYYY-MM-DD or D.M.YY etc.");
-    err.status = 400;
-    throw err;
-  }
-
   const customerIdRaw = process.env.SMOOBU_CUSTOMER_ID;
   if (!customerIdRaw) {
     const err = new Error("SMOOBU_CUSTOMER_ID is not set");
@@ -604,8 +423,8 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const payload = {
     customerId,
-    arrivalDate: arrivalIso,
-    departureDate: departureIso,
+    arrivalDate,
+    departureDate,
     guests: Number(guests),
   };
 
@@ -624,8 +443,8 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
     if (!p) continue;
     offerPayloads.push({
       apartmentId: Number(id),
-      arrivalDate: arrivalIso,
-      departureDate: departureIso,
+      arrivalDate,
+      departureDate,
       guests: Number(guests),
       price: Number(p?.price ?? 0),
       currency: p?.currency || "EUR",
@@ -649,9 +468,8 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       offer = verifyOffer(offerToken);
     } else {
       const arrivalDateRaw = typeof body.arrivalDate === "string" ? body.arrivalDate.trim() : "";
-      const departureDateRaw = typeof body.departureDate === "string" ? body.departureDate.trim() : "";
-      const arrivalDate = parseDateFlexible(arrivalDateRaw);
-      const departureDate = parseDateFlexible(departureDateRaw);
+    const departureDateRaw = typeof body.departureDate === "string" ? body.departureDate.trim() : "";
+    const { arrival: arrivalDate, departure: departureDate } = normalizeIsoRange(arrivalDateRaw, departureDateRaw);
       const adults = Number(body.adults ?? 0);
       const children = Number(body.children ?? 0);
       const guests = Number(body.guests ?? (adults + children));
@@ -714,9 +532,6 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       // Smoobu expects YYYY-MM-DD
       arrivalDate: offer.arrivalDate,
       departureDate: offer.departureDate,
-      // Some endpoints use arrival/departure
-      arrival: offer.arrivalDate,
-      departure: offer.departureDate,
       apartmentId: offer.apartmentId,
       channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
 
@@ -740,9 +555,10 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     };
 
     // Create booking in Smoobu
-    const result = await smoobuFetch("/api/reservations", {
+    const result = await smoobuFetch("/reservations", {
       method: "POST",
-      jsonBody: reservationPayload,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reservationPayload),
     });
 
     // Some Smoobu responses return {id:...} others {reservationId:...}
@@ -789,123 +605,26 @@ async function conciergeChatHandler(req, res) {
     const page = (typeof body.page === "string" && body.page) || "start";
 
     // Normalize user message
-    const userMessageRaw =
+    const userMessage =
       (typeof body.message === "string" && body.message) ||
       (typeof body.question === "string" && body.question) ||
       "";
 
-    const userMessage = normalizeDateExpressionsInText(userMessageRaw);
-
     let messages = Array.isArray(body.messages) ? body.messages : null;
 
-    // Helper: build a strict, source-first system prompt from the single knowledge file.
-    function buildSystemPrompt(questionText) {
-      const rules = KNOWLEDGE?.meta?.rules || {};
-      const radiusKm = Number(rules.default_radius_km || 35);
-      const center = KNOWLEDGE?.alpenlodge?.center || THIERSEE;
-
-      const q = String(questionText || "").toLowerCase();
-      const wantsEvents = /(event|events|veranstaltung|veranstaltungen|sportevent|sportevents|rennen|triathlon|marathon|lauf)/i.test(q);
-      const wantsRestaurants = /(restaurant|essen|kulinarik|wirtshaus|gasthaus|pizza|burger|cafe|café)/i.test(q);
-      const wantsSki = /(ski|skigebiet|snowboard|piste|lift|langlauf|rodel|schlitten)/i.test(q);
-      const wantsLakesPools = /(badesee|see|baden|schwimmbad|hallenbad|therme|sauna|wellness)/i.test(q);
-      const wantsHealth = /(arzt|ärzte|apotheke|notdienst|notruf|krankenhaus)/i.test(q);
-      const wantsHiking = /(wandern|wanderweg|tour|hike|winterwandern|schneeschuh)/i.test(q);
-      const wantsAmenities = /(ausstattung|amenities|fitness|sauna|wasch|trockner|wlan|wi-?fi|park|ladestation)/i.test(q);
-
-      const sources = KNOWLEDGE?.sources || {};
-
-      function pickSources() {
-        const out = [];
-        const add = (key) => {
-          const s = sources[key];
-          if (s?.source) out.push(`- ${s.label || key}: ${s.source}`);
-        };
-        if (wantsRestaurants) add("restaurants");
-        if (wantsEvents) add("events");
-        if (wantsSki) { add("ski_areas"); add("rental"); }
-        if (wantsLakesPools) add("lakes_pools_wellness");
-        if (wantsHealth) { add("doctors_pharmacies"); add("pharmacies"); }
-        if (wantsHiking) add("hiking");
-        if (out.length === 0) {
-          // default set
-          add("events");
-          add("restaurants");
-          add("hiking");
-        }
-        return out.join("\n");
-      }
-
-      function pickEventItems() {
-        const items = Array.isArray(KNOWLEDGE?.items) ? KNOWLEDGE.items : [];
-        const events = items.filter((it) => it && it.type === "event");
-        // Prefer 2026 (if present)
-        const e2026 = events.filter((e) => String(e.date_from || "").startsWith("2026"));
-        const chosen = (e2026.length ? e2026 : events).slice(0, 12);
-        if (!chosen.length) return "";
-        return chosen
-          .map((e) => {
-            const d = e.date_from ? (e.date_to && e.date_to !== e.date_from ? `${e.date_from} bis ${e.date_to}` : e.date_from) : "";
-            const where = e.location_name ? ` – ${e.location_name}` : "";
-            return `- ${e.name}${where}${d ? ` (${d})` : ""} | Quelle: ${e.source}`;
-          })
-          .join("\n");
-      }
-
-      function pickAmenities() {
-        const list = Array.isArray(KNOWLEDGE?.alpenlodge?.amenities) ? KNOWLEDGE.alpenlodge.amenities : [];
-        if (!list.length) return "";
-        return list
-          .slice(0, 20)
-          .map((a) => `- ${a.name}${a.details ? `: ${a.details}` : ""} | Quelle: ${a.source}`)
-          .join("\n");
-      }
-
-      const blocks = [];
-      if (wantsAmenities) {
-        const a = pickAmenities();
-        if (a) blocks.push(`Ausstattung Alpenlodge (verifiziert):\n${a}`);
-      }
-      if (wantsEvents) {
-        const e = pickEventItems();
-        if (e) blocks.push(`Sportevents/Veranstaltungen (verifiziert, Auswahl):\n${e}`);
-      }
-
-      const sourceBlock = pickSources();
-      if (sourceBlock) blocks.push(`Offizielle Quellen (verwenden, wenn Details fehlen):\n${sourceBlock}`);
-
-      const rulesBlock = [
-        "Du bist der Alpenlodge Concierge.",
-        "Regeln:",
-        "- NIEMALS erfinden. Keine frei erfundenen Orts-/Restaurantnamen.",
-        "- Empfehlungen sind erlaubt, aber IMMER mit Quelle (URL) pro Empfehlung/Eintrag.",
-        "- Wenn du etwas nicht sicher aus verifiziertem Wissen beantworten kannst: gib statt einer Behauptung die passende OFFIZIELLE Quelle (URL). Sage NICHT 'kann ich nicht bestätigen'.",
-        `- Standardradius: ${radiusKm} km ab Alpenlodge (Center: ${center.lat}, ${center.lon}).`,
-        "- Datumsformate verstehen: 1.1.26, 01.01.2026, 120126, 12-01-2026.",
-        "- In Antworten: zeige Datum als ISO (YYYY-MM-DD) zusätzlich oder nutze Quelle.",
-        "- Kurz, freundlich, konkret."
-      ].join("\n");
-
-      return `${rulesBlock}\n\n${blocks.join("\n\n")}\n\nSeite: ${page}. Locale: ${locale}.`;
-    }
-
     if (!messages) {
-      const sys = buildSystemPrompt(userMessage);
+      const sys = [
+        "Du bist der Alpenlodge Concierge.",
+        "Antworten kurz, freundlich und konkret.",
+        "Wenn die Frage nach Verfügbarkeit/Preis klingt, frage nach: Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer.",
+        "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
+        `Seite: ${page}. Locale: ${locale}.`,
+      ].join(" ");
+
       messages = [
         { role: "system", content: sys },
         { role: "user", content: userMessage || "Hallo" },
       ];
-    } else {
-      const lastUserFromClientRaw = [...messages].reverse().find((m) => m.role === "user")?.content || userMessage || "";
-      const lastUserFromClient = normalizeDateExpressionsInText(lastUserFromClientRaw);
-      // If client provided its own system message, we still prepend our strict rules + sources.
-      const existingSysIdx = messages.findIndex((m) => m.role === "system");
-      const prepend = { role: "system", content: buildSystemPrompt(lastUserFromClient) };
-      if (existingSysIdx >= 0) {
-        messages[existingSysIdx] = { role: "system", content: `${prepend.content}\n\n---\n\n${messages[existingSysIdx].content || ""}` };
-      } else {
-        messages = [prepend, ...messages];
-      }
     }
 
     // Quick weather path (keine OpenAI-Kosten, wenn eindeutig)
@@ -920,44 +639,21 @@ async function conciergeChatHandler(req, res) {
     }
 
     // OpenAI
-    const modelPrimary = process.env.OPENAI_MODEL_PRIMARY || process.env.OPENAI_MODEL || "gpt-4.1-mini";
-    const modelFallback = process.env.OPENAI_MODEL_FALLBACK || (modelPrimary !== "gpt-4.1-mini" ? "gpt-4.1-mini" : "");
+    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
     const instructions = messages.find(m => m.role === "system")?.content || "";
     const input = messages
       .filter(m => m.role !== "system")
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n");
 
-    let response;
-    try {
-      response = await openai.responses.create({
-        model: modelPrimary,
-        instructions,
-        input,
-        temperature: 0.4,
-      });
-    } catch (e) {
-      if (modelFallback) {
-        response = await openai.responses.create({
-          model: modelFallback,
-          instructions,
-          input,
-          temperature: 0.4,
-        });
-      } else {
-        throw e;
-      }
-    }
+    const response = await openai.responses.create({
+      model,
+      instructions,
+      input,
+      temperature: 0.4,
+    });
 
-    const reply = response.output_text || "";
-    const urls = extractUrls(reply);
-    let links = buildLinkObjects(urls);
-    if (!links.length) {
-      // If the model didn't emit URLs for some reason, provide the official source links.
-      links = pickFallbackSources(userMessage);
-    }
-
-    res.json({ reply, links });
+    res.json({ reply: response.output_text || "" });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
     const status = err?.status || err?.response?.status;
@@ -971,15 +667,92 @@ async function conciergeChatHandler(req, res) {
 }
 
 
+
+// ---------------- Smoobu Selftest ----------------
+// Calls a few SAFE read-only endpoints and returns a compact report.
+// This does NOT require ADMIN_TOKEN.
+app.get("/api/smoobu/selftest", async (req, res) => {
+  const report = { ok: true, checks: [], ts: new Date().toISOString() };
+
+  async function run(name, fn){
+    const started = Date.now();
+    try{
+      const out = await fn();
+      report.checks.push({ name, ok: true, ms: Date.now()-started, sample: out });
+    }catch(err){
+      report.ok = false;
+      const details = err?.details || null;
+      // detect HTML "Page not found" etc.
+      const raw = typeof details?.raw === "string" ? details.raw : "";
+      report.checks.push({
+        name,
+        ok: false,
+        ms: Date.now()-started,
+        status: err?.status || null,
+        message: err?.message || String(err),
+        detail: details,
+        hint: raw && raw.toLowerCase().includes("<html") ? "Received HTML (likely wrong endpoint). Check path mapping." : undefined
+      });
+    }
+  }
+
+  const today = new Date();
+  const start = new Date(today.getTime() + 24*3600*1000);
+  const end = new Date(today.getTime() + 8*24*3600*1000);
+  const start_date = toIsoDate(start.getFullYear(), start.getMonth()+1, start.getDate());
+  const end_date = toIsoDate(end.getFullYear(), end.getMonth()+1, end.getDate());
+
+  await run("apartments:list", async () => {
+    const data = await smoobuFetch("/api/apartments", { method: "GET" });
+    const a = Array.isArray(data?.apartments) ? data.apartments : [];
+    return { count: a.length, first: a[0] ? { id: a[0].id, name: a[0].name } : null };
+  });
+
+  const firstApartmentId = report.checks.find(c => c.name==="apartments:list" && c.ok)?.sample?.first?.id ?? null;
+
+  await run("availability:checkApartmentAvailability", async () => {
+    if (!firstApartmentId) return { skipped: true, reason: "no apartment id" };
+    const payload = {
+      arrivalDate: start_date,
+      departureDate: end_date,
+      apartments: [Number(firstApartmentId)],
+      customerId: Number(SMOOBU_CUSTOMER_ID),
+      guests: 2
+    };
+    const data = await smoobuFetch("/booking/checkApartmentAvailability", { method: "POST", jsonBody: payload });
+    return { availableApartments: data?.availableApartments || [], pricesKeys: data?.prices ? Object.keys(data.prices).slice(0,3) : [] };
+  });
+
+  await run("rates:get", async () => {
+    if (!firstApartmentId) return { skipped: true, reason: "no apartment id" };
+    const data = await smoobuFetch("/api/rates", {
+      method: "GET",
+      query: { start_date, end_date, "apartments[]": [Number(firstApartmentId)] }
+    });
+    return { hasData: !!data, keys: data ? Object.keys(data).slice(0,3) : [] };
+  });
+
+  await run("reservations:list", async () => {
+    const data = await smoobuFetch("/api/reservations", {
+      method: "GET",
+      query: { from: start_date, to: end_date, page: 1, pageSize: 5 }
+    });
+    const items = Array.isArray(data?.bookings) ? data.bookings : (Array.isArray(data?.reservations) ? data.reservations : []);
+    return { items: items.length };
+  });
+
+  res.json(report);
+});
+
+
 // ---------------- Smoobu: "alles" verfügbar (generischer Proxy + Komfort-Endpunkte) ----------------
-// Generic Smoobu proxy: supports ALL endpoints.
-// If ADMIN_TOKEN is set, you can still gate write/admin calls by sending it.
+// Public = nur read-only / safe. Alles andere nur mit ADMIN_TOKEN (Header: X-Admin-Token oder Authorization: Bearer ...)
 
 function isPublicSmoobuAllowed(method, path) {
   if (method === "GET") {
     if (path === "/api/apartments" || path.startsWith("/api/apartments/")) return true;
     if (path.startsWith("/api/rates")) return true; // optional
-    if (path === "/api/bookings" || path.startsWith("/api/bookings/")) return true; // read-only booking lookup
+    if (path === "/api/reservations" || path.startsWith("/api/reservations/")) return true; // read-only booking lookup
   }
   if (method === "POST" && path === "/booking/checkApartmentAvailability") return true;
   return false;
@@ -998,10 +771,7 @@ app.all("/api/smoobu/raw/:path(*)", async (req, res) => {
     const admin = requireAdmin(req);
 
     if (!admin && !isPublicSmoobuAllowed(method, path)) {
-      return res.status(403).json({
-        error: "forbidden",
-        hint: "This instance is gated. Send ADMIN_TOKEN via X-Admin-Token or Authorization: Bearer ...",
-      });
+      return res.status(403).json({ error: "forbidden", hint: "Set ADMIN_TOKEN in Render and send it as X-Admin-Token for write/admin Smoobu calls." });
     }
 
     const jsonBody = (method === "GET" || method === "HEAD") ? undefined : (req.body || undefined);
@@ -1037,7 +807,7 @@ app.get("/api/smoobu/apartments/:id", async (req, res) => {
 
 app.get("/api/smoobu/bookings", async (req, res) => {
   try {
-    const data = await smoobuFetch("/api/bookings", { method: "GET", query: req.query });
+    const data = await smoobuFetch("/api/reservations", { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu bookings list error:", err);
@@ -1048,7 +818,7 @@ app.get("/api/smoobu/bookings", async (req, res) => {
 app.get("/api/smoobu/bookings/:id", async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu booking details error:", err);
@@ -1056,17 +826,17 @@ app.get("/api/smoobu/bookings/:id", async (req, res) => {
   }
 });
 
-// Write endpoints (if ADMIN_TOKEN is set, they are gated)
+// Write endpoints (require ADMIN_TOKEN)
 function forbidUnlessAdmin(req, res) {
   if (requireAdmin(req)) return true;
-  res.status(403).json({ error: "forbidden", hint: "Missing/invalid ADMIN_TOKEN." });
+  res.status(403).json({ error: "forbidden", hint: "Missing/invalid ADMIN_TOKEN. Send header X-Admin-Token or Authorization: Bearer ..." });
   return false;
 }
 
 app.post("/api/smoobu/bookings", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
-    const data = await smoobuFetch("/api/bookings", { method: "POST", jsonBody: req.body || {} });
+    const data = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu create booking error:", err);
@@ -1078,7 +848,7 @@ app.patch("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu update booking error:", err);
@@ -1090,7 +860,7 @@ app.delete("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "DELETE" });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu delete booking error:", err);
