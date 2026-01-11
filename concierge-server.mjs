@@ -328,65 +328,178 @@ app.post("/api/smoobu/availability", smoobuAvailabilityHandler);
 // Aliases from the design doc / older frontend variants
 app.post("/concierge/availability", rateLimit, smoobuAvailabilityHandler);
 app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
+
+// Compute fresh offer payloads directly from Smoobu (server-side).
+// This lets /concierge/book work without the client having to pass an offerToken.
+async function computeOfferPayloads(arrivalDate, departureDate, guests) {
+  const customerIdRaw = process.env.SMOOBU_CUSTOMER_ID;
+  if (!customerIdRaw) {
+    const err = new Error("SMOOBU_CUSTOMER_ID is not set");
+    err.status = 500;
+    throw err;
+  }
+  const customerId = Number(customerIdRaw);
+  if (!Number.isFinite(customerId)) {
+    const err = new Error("SMOOBU_CUSTOMER_ID must be a number");
+    err.status = 500;
+    throw err;
+  }
+
+  const payload = {
+    customerId,
+    arrivalDate,
+    departureDate,
+    guests: Number(guests),
+  };
+
+  const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
+  const prices = avail?.prices || {};
+
+  const offerPayloads = [];
+  for (const id of availableApartments) {
+    const key = String(id);
+    const p = prices[key];
+    if (!p) continue;
+    offerPayloads.push({
+      apartmentId: Number(id),
+      arrivalDate,
+      departureDate,
+      guests: Number(guests),
+      price: Number(p?.price ?? 0),
+      currency: p?.currency || "EUR",
+    });
+  }
+  return offerPayloads;
+}
+
 app.post("/concierge/book", rateLimit, async (req, res) => {
   try {
     const body = req.body || {};
+
+    // --- Offer selection ---
+    // Option A (recommended): client passes offerToken from /concierge/availability (signed + short-lived).
+    // Option B: client passes (arrivalDate, departureDate, guests/adults+children, apartmentId optional) and we fetch a fresh offer from Smoobu.
     const offerToken = typeof body.offerToken === "string" ? body.offerToken.trim() : "";
-    if (!offerToken) return res.status(400).json({ error: "offerToken required" });
 
-    const offer = verifyOffer(offerToken);
+    let offer = null;
 
-    // Guest details
-    const firstName = (body.firstName || "").toString().trim();
-    const lastName = (body.lastName || "").toString().trim();
-    const email = (body.email || "").toString().trim();
-    const phone = (body.phone || "").toString().trim();
+    if (offerToken) {
+      offer = verifyOffer(offerToken);
+    } else {
+      const arrivalDate = typeof body.arrivalDate === "string" ? body.arrivalDate.trim() : "";
+      const departureDate = typeof body.departureDate === "string" ? body.departureDate.trim() : "";
+      const adults = Number(body.adults ?? 0);
+      const children = Number(body.children ?? 0);
+      const guests = Number(body.guests ?? (adults + children));
+
+      const apartmentId =
+        body.apartmentId === undefined || body.apartmentId === null || body.apartmentId === ""
+          ? null
+          : Number(body.apartmentId);
+
+      if (!arrivalDate || !departureDate || !Number.isFinite(guests) || guests <= 0) {
+        return res.status(400).json({
+          error: "missing_params",
+          hint: "Provide offerToken OR (arrivalDate, departureDate, guests OR adults+children, apartmentId optional).",
+        });
+      }
+
+      const offerPayloads = await computeOfferPayloads(arrivalDate, departureDate, guests);
+      if (!offerPayloads.length) {
+        return res.status(409).json({ error: "no_availability" });
+      }
+
+      if (apartmentId !== null && Number.isFinite(apartmentId)) {
+        offer = offerPayloads.find((o) => o.apartmentId === apartmentId) || null;
+        if (!offer) return res.status(409).json({ error: "apartment_not_available" });
+      } else {
+        // default: cheapest available apartment
+        offer = [...offerPayloads].sort((a, b) => (a.price ?? 0) - (b.price ?? 0))[0];
+      }
+    }
+
+    // Booking is only enabled if this secret exists (prevents the server from issuing offers/bookings by accident).
+    if (!process.env.BOOKING_TOKEN_SECRET) {
+      return res.status(500).json({
+        error: "booking_disabled",
+        hint: "Set BOOKING_TOKEN_SECRET in Render env (Environment Group) to enable booking.",
+      });
+    }
+
+    // --- Guest details ---
+    const firstName = typeof body.firstName === "string" ? body.firstName.trim() : "";
+    const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
+    const email = typeof body.email === "string" ? body.email.trim() : "";
+    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+    const language = typeof body.language === "string" ? body.language.trim() : "de";
+    const notice = typeof body.notice === "string" ? body.notice.trim() : "";
 
     if (!firstName || !lastName || !email) {
-      return res.status(400).json({ error: "firstName, lastName, email required" });
+      return res.status(400).json({
+        error: "missing_guest_fields",
+        hint: "Missing: firstName, lastName, email (phone optional).",
+      });
     }
 
-    // Guest counts (optional)
-    const adults = Number(body.adults ?? offer.guests ?? 1);
+    const adults = Number(body.adults ?? offer.guests);
     const children = Number(body.children ?? 0);
-    if (!Number.isFinite(adults) || adults < 0 || !Number.isFinite(children) || children < 0) {
-      return res.status(400).json({ error: "adults/children must be numbers >= 0" });
-    }
-    if (offer.guests && adults + children !== Number(offer.guests)) {
-      return res.status(400).json({ error: "adults + children must equal guests from offer" });
-    }
+    const guests = Number(body.guests ?? (adults + children) ?? offer.guests);
 
-    const notice = (body.notice || body.note || "").toString().trim();
-    const language = (body.language || body.lang || "de").toString().trim();
-
-    if (!SMOOBU_API_KEY) return res.status(500).json({ error: "SMOOBU_API_KEY missing" });
-
-    const channelId = SMOOBU_CHANNEL_ID;
-
+    // --- Build Smoobu reservation payload ---
     const reservationPayload = {
+      // Smoobu expects YYYY-MM-DD
       arrivalDate: offer.arrivalDate,
       departureDate: offer.departureDate,
-      apartmentId: Number(offer.apartmentId),
-      channelId,
+      apartmentId: offer.apartmentId,
+      channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
+
+      // Guest data
       firstName,
       lastName,
       email,
       phone,
-      adults,
-      children,
-      notice,
       language,
+
+      // Guests
+      adults: Number.isFinite(adults) ? adults : guests,
+      children: Number.isFinite(children) ? children : 0,
+
+      // Price (best effort; Smoobu may recalc)
+      price: offer.price,
+      currency: offer.currency,
+
+      // Internal note (shows up for you, not the guest)
+      notice,
     };
 
-    // Optional: pass the total price we quoted (Smoobu may still recalc depending on settings)
-    if (offer.price != null) reservationPayload.price = offer.price;
+    // Create booking in Smoobu
+    const result = await smoobuFetch("/reservations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reservationPayload),
+    });
 
-    const created = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: reservationPayload });
+    // Some Smoobu responses return {id:...} others {reservationId:...}
+    const bookingId = result?.id ?? result?.reservationId ?? null;
 
-    return res.json({
-      status: "created",
-      reservationId: created?.id ?? null,
-      data: created ?? null,
+    return res.status(200).json({
+      ok: true,
+      id: bookingId,
+      offerUsed: {
+        apartmentId: offer.apartmentId,
+        arrivalDate: offer.arrivalDate,
+        departureDate: offer.departureDate,
+        guests: offer.guests,
+        price: offer.price,
+        currency: offer.currency,
+      },
+      result,
     });
   } catch (err) {
     console.error("❌ Smoobu booking error:", err);
