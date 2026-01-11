@@ -34,7 +34,49 @@ function extractUrls(text) {
   return uniq;
 }
 
-function pickFallbackSourceUrls(questionText) {
+
+function labelForUrl(url) {
+  const u = String(url || "");
+  const sources = KNOWLEDGE?.sources || {};
+  for (const [k, s] of Object.entries(sources)) {
+    if (s?.source && s.source === u) return s.label || k;
+  }
+
+  // Friendly domain labels (no invention, just mapping domain -> brand label)
+  try {
+    const host = new URL(u).hostname.replace(/^www\./, "");
+    const map = [
+      [/kufstein\.com$/i, "Kufsteinerland (offiziell)"],
+      [/kitzbuehel\.com$/i, "Kitzbühel (offiziell)"],
+      [/skiwelt\.at$/i, "SkiWelt Wilder Kaiser – Brixental (offiziell)"],
+      [/alpenbahnen-spitzingsee\.de$/i, "Spitzingsee Alpenbahnen (offiziell)"],
+      [/oesterreich\.gv\.at$/i, "Österreich.gv.at (offiziell)"],
+      [/apothekenindex\.at$/i, "Apothekenindex (Verzeichnis)"],
+      [/tegernsee-schliersee\.de$/i, "Tegernsee–Schliersee (offiziell)"],
+      [/hahnenkamm\.com$/i, "Hahnenkamm (offiziell)"],
+    ];
+    for (const [re, label] of map) if (re.test(host)) return label;
+    return host;
+  } catch {
+    return "Quelle";
+  }
+}
+
+function buildLinkObjects(urls) {
+  const uniq = [];
+  const seen = new Set();
+  for (const u of (Array.isArray(urls) ? urls : [])) {
+    const url = String(u || "").trim();
+    if (!url) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    uniq.push({ label: labelForUrl(url), url });
+    if (uniq.length >= 10) break;
+  }
+  return uniq;
+}
+
+function pickFallbackSources(questionText) {
   const q = String(questionText || "").toLowerCase();
   const sources = KNOWLEDGE?.sources || {};
   const want = {
@@ -53,7 +95,7 @@ function pickFallbackSourceUrls(questionText) {
   if (want.ski_areas) keys.push("ski_areas");
   if (want.rental) keys.push("rental");
   if (want.lakes_pools_wellness) keys.push("lakes_pools_wellness");
-  if (want.doctors_pharmacies) keys.push("doctors_pharmacies");
+  if (want.doctors_pharmacies) keys.push("doctors_pharmacies", "pharmacies");
   if (want.hiking) keys.push("hiking");
   if (keys.length === 0) keys.push("events", "restaurants", "hiking");
 
@@ -64,12 +106,11 @@ function pickFallbackSourceUrls(questionText) {
     const url = s?.source;
     if (url && !seen.has(url)) {
       seen.add(url);
-      out.push(url);
+      out.push({ label: s.label || k, url });
     }
   }
   return out.slice(0, 6);
 }
-
 function safeReadJson(filePath) {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
@@ -168,11 +209,10 @@ function getAuthToken(req) {
 }
 
 function requireAdmin(req) {
-  // If ADMIN_TOKEN is NOT set, we don't block any Smoobu endpoints.
-  // If it IS set, it acts as an optional gate for write/admin calls.
-  if (!ADMIN_TOKEN) return true;
-  return getAuthToken(req) === ADMIN_TOKEN;
+  // Public instance: no ADMIN gate (user requested). Keep secrets on server only.
+  return true;
 }
+
 
 function ensureSmoobuPath(p) {
   // Only allow Smoobu API paths we expect
@@ -183,6 +223,64 @@ function ensureSmoobuPath(p) {
   return null;
 }
 
+
+
+// ---------------- Date parsing (flexible user input) ----------------
+// Accepts: YYYY-MM-DD, D.M.YYYY, D.M.YY, DDMMYYYY, DDMMYY, D-M-YYYY, D/M/YY
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function parseDateFlexible(input) {
+  const s0 = String(input || "").trim();
+  if (!s0) return null;
+
+  // ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s0)) return s0;
+
+  // D.M.YYYY or D.M.YY (also with / or -)
+  let m = s0.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2}|\d{4})$/);
+  if (m) {
+    let d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+    if (y < 100) y = 2000 + y; // booking use-case
+    if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+    return `${y}-${pad2(mo)}-${pad2(d)}`;
+  }
+
+  // DDMMYYYY / DDMMYY
+  m = s0.match(/^(\d{2})(\d{2})(\d{2}|\d{4})$/);
+  if (m) {
+    const d = Number(m[1]), mo = Number(m[2]);
+    let y = Number(m[3]);
+    if (y < 100) y = 2000 + y;
+    if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+    return `${y}-${pad2(mo)}-${pad2(d)}`;
+  }
+
+  return null;
+}
+
+// Replace date-like fragments in free text with "original (YYYY-MM-DD)" to help the model.
+function normalizeDateExpressionsInText(text) {
+  const t = String(text || "");
+  if (!t) return t;
+
+  // 1) D.M.YY or D.M.YYYY
+  const r1 = /\b(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})\b/g;
+  let out = t.replace(r1, (full, d, m, y) => {
+    const iso = parseDateFlexible(full);
+    if (!iso) return full;
+    return `${full} (${iso})`;
+  });
+
+  // 2) DDMMYY / DDMMYYYY (only if it's clearly a date token, surrounded by word boundaries)
+  const r2 = /\b(\d{6}|\d{8})\b/g;
+  out = out.replace(r2, (full) => {
+    const iso = parseDateFlexible(full);
+    if (!iso) return full;
+    return `${full} (${iso})`;
+  });
+
+  return out;
+}
 
 function now() { return Date.now(); }
 
@@ -333,6 +431,65 @@ app.get("/api/smoobu/apartments", smoobuApartmentsHandler);
 app.get("/concierge/apartments", smoobuApartmentsHandler);
 app.get("/api/apartments", smoobuApartmentsHandler);
 
+// 0) Quick self-test (no side effects; read/availability only)
+// Call: GET /api/smoobu/selftest
+app.get("/api/smoobu/selftest", async (req, res) => {
+  const checks = [];
+  const startedAt = Date.now();
+
+  const add = async (name, fn) => {
+    const t0 = Date.now();
+    try {
+      const result = await fn();
+      checks.push({ name, ok: true, ms: Date.now() - t0, sample: result });
+    } catch (e) {
+      checks.push({
+        name,
+        ok: false,
+        ms: Date.now() - t0,
+        error: { message: e?.message || String(e), status: e?.status || null, details: e?.details || null }
+      });
+    }
+  };
+
+  // Basic env presence
+  const env = {
+    SMOOBU_API_KEY: Boolean(process.env.SMOOBU_API_KEY),
+    SMOOBU_CUSTOMER_ID: Boolean(process.env.SMOOBU_CUSTOMER_ID),
+    BOOKING_TOKEN_SECRET: Boolean(process.env.BOOKING_TOKEN_SECRET),
+  };
+
+  await add("GET /api/apartments", async () => {
+    const d = await smoobuFetch("/api/apartments", { method: "GET" });
+    const a = Array.isArray(d?.apartments) ? d.apartments : (Array.isArray(d) ? d : []);
+    return { apartmentsCount: a.length, firstApartmentId: a[0]?.id ?? a[0]?.apartmentId ?? null };
+  });
+
+  await add("POST /booking/checkApartmentAvailability (next week, 2 nights)", async () => {
+    if (!process.env.SMOOBU_CUSTOMER_ID) throw Object.assign(new Error("SMOOBU_CUSTOMER_ID missing"), { status: 500 });
+    const today = new Date();
+    const arr = new Date(today.getTime() + 7 * 24 * 3600 * 1000);
+    const dep = new Date(today.getTime() + 9 * 24 * 3600 * 1000);
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const payload = { customerId: Number(process.env.SMOOBU_CUSTOMER_ID), arrivalDate: iso(arr), departureDate: iso(dep), apartments: [], guests: 2 };
+    const d = await smoobuFetch("/booking/checkApartmentAvailability", { method: "POST", jsonBody: payload });
+    const avail = Array.isArray(d?.availableApartments) ? d.availableApartments.length : null;
+    return { availableApartments: avail, currency: d?.currency || null };
+  });
+
+  await add("GET /api/rates (if enabled)", async () => {
+    const d = await smoobuFetch("/api/rates", { method: "GET", query: { limit: 1 } });
+    return { ok: true, sampleKeys: Object.keys(d || {}).slice(0, 10) };
+  });
+
+  await add("GET /api/bookings (if enabled)", async () => {
+    const d = await smoobuFetch("/api/bookings", { method: "GET", query: { limit: 1 } });
+    return { ok: true, sampleKeys: Object.keys(d || {}).slice(0, 10) };
+  });
+
+  res.json({ ok: checks.every(c => c.ok), env, msTotal: Date.now() - startedAt, checks });
+});
+
 // 2) Availability + price (Smoobu Booking API)
 // Request body (min): { arrivalDate: "YYYY-MM-DD", departureDate: "YYYY-MM-DD", apartments?: [1,2], guests?: 2, discountCode?: "..." }
 async function smoobuAvailabilityHandler(req, res) {
@@ -342,12 +499,18 @@ async function smoobuAvailabilityHandler(req, res) {
     }
 
     const { arrivalDate, departureDate, apartments, guests, discountCode } = req.body || {};
-    if (!arrivalDate || !departureDate) {
-      return res.status(400).json({ error: "arrivalDate and departureDate required (YYYY-MM-DD)" });
+    const arrivalIso = parseDateFlexible(arrivalDate);
+    const departureIso = parseDateFlexible(departureDate);
+    if (!arrivalIso || !departureIso) {
+      return res.status(400).json({
+        error: "bad_dates",
+        hint: "arrivalDate & departureDate required. Formats: YYYY-MM-DD, D.M.YY, D.M.YYYY, DDMMYY, DDMMYYYY, D-M-YY.",
+      });
     }
 
     const payload = {
-      arrivalDate,
+      arrivalDate: arrivalIso,
+      departureDate: departureIso,
       departureDate,
       apartments: Array.isArray(apartments) ? apartments : [],
       customerId: Number(SMOOBU_CUSTOMER_ID),
@@ -376,8 +539,8 @@ try {
       const priceInfo = data.prices?.[apartmentId] || null;
       const offerPayload = {
         apartmentId,
-        arrivalDate,
-        departureDate,
+        arrivalDate: arrivalIso,
+        departureDate: departureIso,
         guests: Number(guests || 0) || null,
         price: priceInfo?.price ?? null,
         currency: priceInfo?.currency ?? null,
@@ -418,6 +581,14 @@ app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
 async function computeOfferPayloads(arrivalDate, departureDate, guests) {
+  const arrivalIso = parseDateFlexible(arrivalDate);
+  const departureIso = parseDateFlexible(departureDate);
+  if (!arrivalIso || !departureIso) {
+    const err = new Error("Bad arrival/departure date. Use YYYY-MM-DD or D.M.YY etc.");
+    err.status = 400;
+    throw err;
+  }
+
   const customerIdRaw = process.env.SMOOBU_CUSTOMER_ID;
   if (!customerIdRaw) {
     const err = new Error("SMOOBU_CUSTOMER_ID is not set");
@@ -433,15 +604,14 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const payload = {
     customerId,
-    arrivalDate,
-    departureDate,
+    arrivalDate: arrivalIso,
+    departureDate: departureIso,
     guests: Number(guests),
   };
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    jsonBody: payload,
   });
 
   const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
@@ -454,8 +624,8 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
     if (!p) continue;
     offerPayloads.push({
       apartmentId: Number(id),
-      arrivalDate,
-      departureDate,
+      arrivalDate: arrivalIso,
+      departureDate: departureIso,
       guests: Number(guests),
       price: Number(p?.price ?? 0),
       currency: p?.currency || "EUR",
@@ -478,8 +648,10 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     if (offerToken) {
       offer = verifyOffer(offerToken);
     } else {
-      const arrivalDate = typeof body.arrivalDate === "string" ? body.arrivalDate.trim() : "";
-      const departureDate = typeof body.departureDate === "string" ? body.departureDate.trim() : "";
+      const arrivalDateRaw = typeof body.arrivalDate === "string" ? body.arrivalDate.trim() : "";
+      const departureDateRaw = typeof body.departureDate === "string" ? body.departureDate.trim() : "";
+      const arrivalDate = parseDateFlexible(arrivalDateRaw);
+      const departureDate = parseDateFlexible(departureDateRaw);
       const adults = Number(body.adults ?? 0);
       const children = Number(body.children ?? 0);
       const guests = Number(body.guests ?? (adults + children));
@@ -542,6 +714,9 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       // Smoobu expects YYYY-MM-DD
       arrivalDate: offer.arrivalDate,
       departureDate: offer.departureDate,
+      // Some endpoints use arrival/departure
+      arrival: offer.arrivalDate,
+      departure: offer.departureDate,
       apartmentId: offer.apartmentId,
       channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
 
@@ -565,10 +740,9 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     };
 
     // Create booking in Smoobu
-    const result = await smoobuFetch("/reservations", {
+    const result = await smoobuFetch("/api/reservations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reservationPayload),
+      jsonBody: reservationPayload,
     });
 
     // Some Smoobu responses return {id:...} others {reservationId:...}
@@ -615,10 +789,12 @@ async function conciergeChatHandler(req, res) {
     const page = (typeof body.page === "string" && body.page) || "start";
 
     // Normalize user message
-    const userMessage =
+    const userMessageRaw =
       (typeof body.message === "string" && body.message) ||
       (typeof body.question === "string" && body.question) ||
       "";
+
+    const userMessage = normalizeDateExpressionsInText(userMessageRaw);
 
     let messages = Array.isArray(body.messages) ? body.messages : null;
 
@@ -705,6 +881,8 @@ async function conciergeChatHandler(req, res) {
         "- Empfehlungen sind erlaubt, aber IMMER mit Quelle (URL) pro Empfehlung/Eintrag.",
         "- Wenn du etwas nicht sicher aus verifiziertem Wissen beantworten kannst: gib statt einer Behauptung die passende OFFIZIELLE Quelle (URL). Sage NICHT 'kann ich nicht bestätigen'.",
         `- Standardradius: ${radiusKm} km ab Alpenlodge (Center: ${center.lat}, ${center.lon}).`,
+        "- Datumsformate verstehen: 1.1.26, 01.01.2026, 120126, 12-01-2026.",
+        "- In Antworten: zeige Datum als ISO (YYYY-MM-DD) zusätzlich oder nutze Quelle.",
         "- Kurz, freundlich, konkret."
       ].join("\n");
 
@@ -718,7 +896,8 @@ async function conciergeChatHandler(req, res) {
         { role: "user", content: userMessage || "Hallo" },
       ];
     } else {
-      const lastUserFromClient = [...messages].reverse().find((m) => m.role === "user")?.content || userMessage || "";
+      const lastUserFromClientRaw = [...messages].reverse().find((m) => m.role === "user")?.content || userMessage || "";
+      const lastUserFromClient = normalizeDateExpressionsInText(lastUserFromClientRaw);
       // If client provided its own system message, we still prepend our strict rules + sources.
       const existingSysIdx = messages.findIndex((m) => m.role === "system");
       const prepend = { role: "system", content: buildSystemPrompt(lastUserFromClient) };
@@ -771,10 +950,11 @@ async function conciergeChatHandler(req, res) {
     }
 
     const reply = response.output_text || "";
-    let links = extractUrls(reply);
+    const urls = extractUrls(reply);
+    let links = buildLinkObjects(urls);
     if (!links.length) {
       // If the model didn't emit URLs for some reason, provide the official source links.
-      links = pickFallbackSourceUrls(userMessage);
+      links = pickFallbackSources(userMessage);
     }
 
     res.json({ reply, links });
