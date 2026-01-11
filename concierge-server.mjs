@@ -209,6 +209,12 @@ function isWeatherQuestion(text = "") {
   const t = text.toLowerCase();
   return /(wetter|forecast|weather|regen|schnee|temperatur|sonnig|bewölkt)/.test(t);
 }
+
+function isRestaurantOrRecommendationQuestion(text = "") {
+  const t = String(text || "").toLowerCase();
+  return /(restaurant|gasthaus|wirtshaus|pizzeria|cafe|bar|empfehlung|recommend)/.test(t);
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -220,6 +226,24 @@ if (!apiKey) {
   process.exit(1);
 }
 const openai = new OpenAI({ apiKey });
+const OPENAI_MODEL_PRIMARY = process.env.OPENAI_MODEL_PRIMARY || process.env.OPENAI_MODEL || "gpt-5.2";
+const OPENAI_MODEL_FALLBACK = process.env.OPENAI_MODEL_FALLBACK || "gpt-4.1-mini";
+
+// Kurzes, kuratiertes Wissen (für "keine Erfindungen") – nur das, was wir sicher als Region-Infos liefern wollen.
+const KUFSTEINERLAND_KB_DE = `
+KUFSTEINERLAND (Tirol) – verifizierte Highlights:
+- Kufstein: Festung Kufstein (historische Festung oberhalb der Stadt).
+- Kaisergebirge / Kaisertal: Naturschutzgebiet; klassischer Zustieg über den "Kaiseraufstieg" mit ca. 300 Stufen, danach Wanderwege ins Tal.
+- Thiersee (See): Spazierweg rund um den See; im Sommer Badebetrieb.
+- Gästekarte: KufsteinerlandCard (je nach Saison/Leistung u.a. Eintritte/ÖV-Ermäßigungen).
+Wichtig: Keine Restaurants, Öffnungszeiten oder Preise erfinden. Wenn unsicher: „Kann ich nicht sicher bestätigen“ und ggf. auf offizielle Quellen/Infopoints verweisen.
+`.trim();
+
+function wantsMiniModel(body) {
+  const pref = (typeof body?.model === "string" ? body.model : "").toLowerCase().trim();
+  return pref === "mini" || pref === "fast" || pref === "cheap";
+}
+
 // ✅ Health check for Render / monitoring
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -354,8 +378,7 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    jsonBody: payload,
   });
 
   const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
@@ -479,10 +502,9 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     };
 
     // Create booking in Smoobu
-    const result = await smoobuFetch("/reservations", {
+    const result = await smoobuFetch("/api/reservations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reservationPayload),
+      jsonBody: reservationPayload,
     });
 
     // Some Smoobu responses return {id:...} others {reservationId:...}
@@ -538,12 +560,14 @@ async function conciergeChatHandler(req, res) {
 
     if (!messages) {
       const sys = [
-        "Du bist der Alpenlodge Concierge.",
-        "Antworten kurz, freundlich und konkret.",
-        "Wenn die Frage nach Verfügbarkeit/Preis klingt, frage nach: Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer.",
-        "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
-        `Seite: ${page}. Locale: ${locale}.`,
-      ].join(" ");
+  "Du bist der Alpenlodge Concierge.",
+  "Antworten kurz, freundlich und konkret.",
+  "ABSOLUTES ERFINDUNGSVERBOT: Erfinde niemals Fakten (Restaurants, Öffnungszeiten, Preise, Events, Regeln). Wenn du etwas nicht sicher weißt: sag das offen und biete an, es zu prüfen (oder verweise auf offizielle Quellen).",
+  "Wenn es um Verfügbarkeit/Preis/Buchen geht: frage nach Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer. Nutze dafür die Smoobu-Endpunkte /concierge/availability und /concierge/book.",
+  "Wenn es um Kufsteinerland/Thiersee/Kufstein/Ebbs/Erl geht: nutze ausschließlich das kuratierte Wissen aus KUFSTEINERLAND_KB_DE und erfinde nichts.",
+  `Wissen (Kufsteinerland): ${KUFSTEINERLAND_KB_DE}`,
+  `Seite: ${page}. Locale: ${locale}.`,
+].join(" ");
 
       messages = [
         { role: "system", content: sys },
@@ -562,22 +586,50 @@ async function conciergeChatHandler(req, res) {
       }
     }
 
+// Safety: keine erfundenen Empfehlungen (Restaurants/Betriebe). Standard = block.
+if (!process.env.ALLOW_RECOMMENDATIONS && isRestaurantOrRecommendationQuestion(lastUser)) {
+  const msg = locale.startsWith("en")
+    ? "I can’t recommend specific restaurants or businesses without a verified list. If you tell me a name, I can help with directions/what to look for, or you can use the official Kufsteinerland listings."
+    : "Ich kann keine konkreten Restaurants/Betriebe empfehlen ohne verifizierte Liste. Wenn du mir einen Namen gibst, helfe ich mit Weg/Einordnung – oder nutze die offiziellen Kufsteinerland-Listings.";
+  return res.json({ reply: msg });
+}
+
     // OpenAI
-    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+    const model = wantsMiniModel(body) ? OPENAI_MODEL_FALLBACK : OPENAI_MODEL_PRIMARY;
     const instructions = messages.find(m => m.role === "system")?.content || "";
     const input = messages
       .filter(m => m.role !== "system")
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n");
 
-    const response = await openai.responses.create({
-      model,
+let response;
+let modelUsed = model;
+
+try {
+  response = await openai.responses.create({
+    model: modelUsed,
+    instructions,
+    input,
+    temperature: 0.2,
+  });
+} catch (e) {
+  // Fallback: wenn Primary zickt (Rate-Limit/5xx/Netz), probiere Mini.
+  const status = e?.status || e?.response?.status;
+  const isRetryable = status === 429 || (status >= 500 && status < 600) || !status;
+  if (modelUsed === OPENAI_MODEL_PRIMARY && isRetryable && OPENAI_MODEL_FALLBACK) {
+    modelUsed = OPENAI_MODEL_FALLBACK;
+    response = await openai.responses.create({
+      model: modelUsed,
       instructions,
       input,
-      temperature: 0.4,
+      temperature: 0.2,
     });
+  } else {
+    throw e;
+  }
+}
 
-    res.json({ reply: response.output_text || "" });
+res.json({ reply: response?.output_text || "", modelUsed });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
     const status = err?.status || err?.response?.status;
@@ -598,7 +650,7 @@ function isPublicSmoobuAllowed(method, path) {
   if (method === "GET") {
     if (path === "/api/apartments" || path.startsWith("/api/apartments/")) return true;
     if (path.startsWith("/api/rates")) return true; // optional
-    if (path === "/api/bookings" || path.startsWith("/api/bookings/")) return true; // read-only booking lookup
+    if (path === "/api/reservations" || path.startsWith("/api/reservations/")) return true; // read-only booking lookup
   }
   if (method === "POST" && path === "/booking/checkApartmentAvailability") return true;
   return false;
@@ -651,9 +703,66 @@ app.get("/api/smoobu/apartments/:id", async (req, res) => {
   }
 });
 
+// Preferred naming (Smoobu docs): /api/reservations
+app.get("/api/smoobu/reservations", async (req, res) => {
+  try {
+    const data = await smoobuFetch("/api/reservations", { method: "GET", query: req.query });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu reservations list error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.get("/api/smoobu/reservations/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu reservation details error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.post("/api/smoobu/reservations", async (req, res) => {
+  if (!forbidUnlessAdmin(req, res)) return;
+  try {
+    const data = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: req.body || {} });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu create reservation error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.patch("/api/smoobu/reservations/:id", async (req, res) => {
+  if (!forbidUnlessAdmin(req, res)) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu update reservation error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
+app.delete("/api/smoobu/reservations/:id", async (req, res) => {
+  if (!forbidUnlessAdmin(req, res)) return;
+  try {
+    const id = String(req.params.id || "").trim();
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "DELETE" });
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Smoobu delete reservation error:", err);
+    res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
+  }
+});
+
 app.get("/api/smoobu/bookings", async (req, res) => {
   try {
-    const data = await smoobuFetch("/api/bookings", { method: "GET", query: req.query });
+    const data = await smoobuFetch("/api/reservations", { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu bookings list error:", err);
@@ -664,7 +773,7 @@ app.get("/api/smoobu/bookings", async (req, res) => {
 app.get("/api/smoobu/bookings/:id", async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu booking details error:", err);
@@ -682,7 +791,7 @@ function forbidUnlessAdmin(req, res) {
 app.post("/api/smoobu/bookings", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
-    const data = await smoobuFetch("/api/bookings", { method: "POST", jsonBody: req.body || {} });
+    const data = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu create booking error:", err);
@@ -694,7 +803,7 @@ app.patch("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu update booking error:", err);
@@ -706,7 +815,7 @@ app.delete("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "DELETE" });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu delete booking error:", err);
