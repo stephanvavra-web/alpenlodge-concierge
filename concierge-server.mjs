@@ -39,6 +39,9 @@ loadKnowledge();
 const SMOOBU_API_KEY = process.env.SMOOBU_API_KEY;
 const SMOOBU_CUSTOMER_ID = process.env.SMOOBU_CUSTOMER_ID; // int (dein Smoobu User/Customer ID)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/admin Smoobu routes
+
+// Default center point for radius filtering / weather (Landl, Thiersee – approx.)
+const THIERSEE = { lat: 47.5890, lon: 12.03543 }; // source: Landl (Thiersee) map location
 const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
@@ -772,9 +775,9 @@ async function conciergeChatHandler(req, res) {
 
     // Helper: build a strict, source-first system prompt from the single knowledge file.
     function buildSystemPrompt(questionText) {
-      const rules = KNOWLEDGE?.meta?.rules || {};
+      const rules = VERIFIED?.meta?.rules || {};
       const radiusKm = Number(rules.default_radius_km || 35);
-      const center = KNOWLEDGE?.alpenlodge?.center || THIERSEE;
+      const center = VERIFIED?.meta?.base_location?.coords || VERIFIED?.alpenlodge?.center || THIERSEE;
 
       const q = String(questionText || "").toLowerCase();
       const wantsEvents = /(event|events|veranstaltung|veranstaltungen|sportevent|sportevents|rennen|triathlon|marathon|lauf)/i.test(q);
@@ -785,7 +788,7 @@ async function conciergeChatHandler(req, res) {
       const wantsHiking = /(wandern|wanderweg|tour|hike|winterwandern|schneeschuh)/i.test(q);
       const wantsAmenities = /(ausstattung|amenities|fitness|sauna|wasch|trockner|wlan|wi-?fi|park|ladestation)/i.test(q);
 
-      const sources = KNOWLEDGE?.sources || {};
+      const sources = VERIFIED?.sources || {};
 
       function pickSources() {
         const out = [];
@@ -809,7 +812,7 @@ async function conciergeChatHandler(req, res) {
       }
 
       function pickEventItems() {
-        const items = Array.isArray(KNOWLEDGE?.items) ? KNOWLEDGE.items : [];
+        const items = Array.isArray(VERIFIED?.items) ? VERIFIED.items : [];
         const events = items.filter((it) => it && it.type === "event");
         // Prefer 2026 (if present)
         const e2026 = events.filter((e) => String(e.date_from || "").startsWith("2026"));
@@ -825,7 +828,7 @@ async function conciergeChatHandler(req, res) {
       }
 
       function pickAmenities() {
-        const list = Array.isArray(KNOWLEDGE?.alpenlodge?.amenities) ? KNOWLEDGE.alpenlodge.amenities : [];
+        const list = Array.isArray(VERIFIED?.alpenlodge?.amenities) ? VERIFIED.alpenlodge.amenities : [];
         if (!list.length) return "";
         return list
           .slice(0, 20)
