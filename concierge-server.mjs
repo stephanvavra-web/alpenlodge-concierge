@@ -330,6 +330,7 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
 
 
   const links = [];
+
   const seen = new Set();
   const pushLink = (label, url) => {
     if (!url || !isHttpUrl(url)) return;
@@ -341,10 +342,16 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
 
   for (const it of items) {
     if (it.url) pushLink(it.name, it.url);
-    if (it.sourceUrl && it.sourceUrl !== it.url) pushLink(`${it.name} (Quelle)`, it.sourceUrl);
+    if (it.sourceUrl && it.sourceUrl !== it.url && !String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) {
+      pushLink(`${it.name} (Quelle)`, it.sourceUrl);
+    }
   }
-  for (const d of extraDirs) {
-    if (d?.url) pushLink(d.label, d.url);
+
+  // Only add directories as links when we had no items (fallback)
+  if (!items.length) {
+    for (const d of extraDirs) {
+      if (d?.url) pushLink(d.label, d.url);
+    }
   }
 
   return { reply: lines.join("\n"), links };
@@ -971,15 +978,17 @@ async function conciergeChatHandler(req, res) {
       const it = list[sel - 1];
       if (it) {
         const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
+        const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? "intern bestätigt" : "";
         const replyLines = [
           `**${it.name}${dist}**`,
           it.summary ? it.summary : "",
-          it.url ? `Link: ${it.url}` : "",
-          (it.sourceUrl && it.sourceUrl !== it.url) ? `Quelle: ${it.sourceUrl}` : "",
+          internal ? `(${internal})` : "",
         ].filter(Boolean);
         const links = [];
-        if (it.url) links.push({ label: it.name, url: it.url });
-        if (it.sourceUrl && it.sourceUrl !== it.url) links.push({ label: `${it.name} (Quelle)`, url: it.sourceUrl });
+        if (it.url && isHttpUrl(it.url)) links.push({ label: it.name, url: it.url });
+        if (it.sourceUrl && it.sourceUrl !== it.url && isHttpUrl(it.sourceUrl) && !String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) {
+          links.push({ label: `${it.name} (Quelle)`, url: it.sourceUrl });
+        }
         return res.json({ reply: replyLines.join("\n"), links, source: "knowledge" });
       }
     }
@@ -991,7 +1000,7 @@ async function conciergeChatHandler(req, res) {
     const cat = detectCategory(lastUser);
     if (cat) {
       const k = loadKnowledge();
-      const mustAnswerFromKnowledge = isListIntent(lastUser) || cat === "events" || cat === "medical" || cat === "alpenlodge";
+      const mustAnswerFromKnowledge = Boolean(cat);
       if (mustAnswerFromKnowledge) {
         const r = buildCategoryReply(cat, k, radiusKm, sessionId);
         if (r?.reply) return res.json({ reply: r.reply, links: r.links || [], source: "knowledge" });
