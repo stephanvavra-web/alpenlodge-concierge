@@ -65,7 +65,11 @@
   };
 
   const renderMsgHtml = (text) => {
-    const safe = escapeHtml(text).replace(/\n/g, "<br>");
+    // 1) Escape HTML (prevents injection)
+    // 2) Render minimal Markdown: **bold**
+    // 3) Linkify http(s) + www
+    let safe = escapeHtml(text).replace(/\n/g, "<br>");
+    safe = safe.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     return linkify(safe);
   };
 
@@ -194,8 +198,31 @@
 #al-concierge-panel .al-links a{ color:var(--al-accent); text-decoration:underline; }
 #al-concierge-panel .al-links-url{ font-size:11px; opacity:.8; margin-top:2px; word-break:break-word; }
 #al-concierge-panel .foot{
-  display:flex; gap:10px; padding:12px 14px;
+  display:flex; flex-direction:column; gap:10px; padding:12px 14px;
   border-top:1px solid rgba(0,0,0,.08); background:rgba(255,255,255,.95);
+}
+#al-concierge-panel .quick{
+  display:flex; gap:8px; flex-wrap:wrap;
+  max-height:92px; overflow:auto;
+}
+#al-concierge-panel .quick button{
+  height:32px;
+  padding:0 12px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,.14);
+  background:#fff;
+  cursor:pointer;
+  font-size:12px;
+  white-space:nowrap;
+}
+#al-concierge-panel .quick button.primary{
+  border:none;
+  background:var(--al-accent);
+  color:#fff;
+  font-weight:800;
+}
+#al-concierge-panel .compose{
+  display:flex; gap:10px;
 }
 #al-concierge-panel input{
   flex:1; height:40px; border-radius:999px;
@@ -294,8 +321,11 @@ body.al-no-scroll{ overflow:hidden; }
       </div>
       <div class="body"></div>
       <div class="foot">
-        <input type="text" placeholder="${CFG.placeholder}" />
-        <button class="send" type="button">${CFG.send}</button>
+        <div class="quick" aria-label="Schnellwahl"></div>
+        <div class="compose">
+          <input type="text" placeholder="${CFG.placeholder}" />
+          <button class="send" type="button">${CFG.send}</button>
+        </div>
       </div>
     `;
     document.body.appendChild(panel);
@@ -364,9 +394,49 @@ body.al-no-scroll{ overflow:hidden; }
     const input = $("input", panel);
     const sendBtn = $("button.send", panel);
     const closeBtn = $("button.x", panel);
+    const quick = $(".quick", panel);
 
     const lang = detectLang();
     const greet = lang === "en" ? CFG.greetEN : CFG.greetDE;
+
+    const START_ACTIONS = (lang === "en")
+      ? [
+          { type: "link", label: "Book", url: "/buchen/", kind: "primary" },
+          { type: "postback", label: "Availability", message: "Check availability" },
+          { type: "postback", label: "Prices", message: "Compare prices" }
+        ]
+      : [
+          { type: "link", label: "Buchen", url: "/buchen/", kind: "primary" },
+          { type: "postback", label: "Verfügbarkeit", message: "Verfügbarkeit prüfen" },
+          { type: "postback", label: "Preise", message: "Preise vergleichen" }
+        ];
+
+    function setQuickActions(actions) {
+      if (!quick) return;
+      const list = Array.isArray(actions) ? actions : [];
+      quick.innerHTML = "";
+      list.forEach((a) => {
+        if (!a || !a.label) return;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = a.label;
+        if (a.kind === "primary") btn.classList.add("primary");
+        btn.addEventListener("click", () => {
+          if (a.type === "link") {
+            const url = a.url || a.href;
+            if (!url) return;
+            const target = a.target || (String(url).startsWith("http") ? "_blank" : "_self");
+            window.open(url, target, "noopener");
+            return;
+          }
+          // postback (send a message without typing)
+          const msg = a.message || a.text;
+          if (msg) submit(msg);
+        });
+        quick.appendChild(btn);
+      });
+    }
+
 
     const push = (text, who) => {
       const html = renderMsgHtml(text);
@@ -380,6 +450,7 @@ body.al-no-scroll{ overflow:hidden; }
     };
 
     push(greet, "bot");
+    setQuickActions(START_ACTIONS);
 
     const open = () => {
       positionPanelNearButton(panel, finalBtn);
@@ -420,8 +491,8 @@ body.al-no-scroll{ overflow:hidden; }
       if (panel.classList.contains("open") && window.innerWidth > 520) positionPanelNearButton(panel, finalBtn);
     }, { passive: true });
 
-    const ask = async () => {
-      const q = (input.value || "").trim();
+    async function submit(qOverride) {
+      const q = (qOverride !== undefined ? String(qOverride) : (input.value || "")).trim();
       if (!q) return;
       input.value = "";
       push(q, "usr");
@@ -474,9 +545,13 @@ body.al-no-scroll{ overflow:hidden; }
           // Show assistant reply
           push(reply, "bot");
 
+          // Quick action buttons (above the input)
+          const actions = data && data.actions;
+          setQuickActions(Array.isArray(actions) && actions.length ? actions : START_ACTIONS);
+
           // Show sources as a separate block (clickable), if provided.
           const links = data && data.links;
-          const linksHtml = renderLinks(links, lang === "en" ? "Sources" : "Quellen");
+          const linksHtml = renderLinks(links, lang === "en" ? "Info & Links" : "Infos & Links");
           if (linksHtml) push(linksHtml, "bot");
           return;
         }
@@ -498,7 +573,9 @@ body.al-no-scroll{ overflow:hidden; }
           "bot"
         );
       }
-    };
+    }
+
+    const ask = () => submit();
 
     sendBtn.addEventListener("click", ask);
     input.addEventListener("keydown", (e) => {

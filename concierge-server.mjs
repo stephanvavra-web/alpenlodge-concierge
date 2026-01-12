@@ -147,6 +147,64 @@ function normalizeKnowledge(raw) {
 }
 
 
+// ---------------- Units mapping (Website <-> Smoobu IDs) ----------------
+// Used for: nicer booking/availability replies (names, categories, detail links)
+// Source of truth: /data/units.json (generated from Abgeglichen.xlsx / units list).
+const UNITS_FILE = path.join(__dirname, "data", "units.json");
+let _unitsCache = { mtimeMs: 0, value: null };
+
+function loadUnits() {
+  try {
+    const st = fs.statSync(UNITS_FILE);
+    if (_unitsCache.value && _unitsCache.mtimeMs === st.mtimeMs) return _unitsCache.value;
+    const raw = fs.readFileSync(UNITS_FILE, "utf8");
+    const json = JSON.parse(raw);
+    const units = Array.isArray(json?.units) ? json.units : [];
+    _unitsCache = { mtimeMs: st.mtimeMs, value: units };
+    return units;
+  } catch {
+    _unitsCache = { mtimeMs: 0, value: [] };
+    return [];
+  }
+}
+
+function foldText(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function findUnitByApartmentId(apartmentId) {
+  const id = Number(apartmentId);
+  if (!Number.isFinite(id)) return null;
+  const units = loadUnits();
+  return units.find((u) => Number(u.smoobu_id) === id) || null;
+}
+
+function findUnitMentionInText(userText) {
+  const t = foldText(userText);
+  if (!t) return null;
+  const units = loadUnits();
+  // Prefer longest name first to avoid partial collisions.
+  const byLen = [...units].sort((a, b) => foldText(b.name).length - foldText(a.name).length);
+  return byLen.find((u) => t.includes(foldText(u.name))) || null;
+}
+
+function detectUnitCategoryFilter(userText) {
+  const t = foldText(userText);
+  if (!t) return null;
+  if (t.includes("premium")) return "Premium";
+  if (t.includes("suite") || t.includes("suiten")) return "Suite";
+  if (t.includes("apartment") || t.includes("apartments")) return "Apartment";
+  return null;
+}
+
+
+
 function norm(s) {
   return (s || "").toString().trim();
 }
@@ -228,7 +286,10 @@ function getSession(sessionId) {
 
 function setLastList(sessionId, items) {
   if (!sessionId) return;
-  sessionState.set(sessionId, { lastList: items || [], ts: Date.now() });
+  const s = getSession(sessionId) || { ts: Date.now() };
+  s.lastList = items || [];
+  s.ts = Date.now();
+  sessionState.set(sessionId, s);
 }
 
 function parseListSelection(text) {
@@ -245,6 +306,316 @@ function parseListSelection(text) {
 function isHttpUrl(u) {
   return /^https?:\/\//i.test(String(u || "").trim());
 }
+
+
+// ---------------- Booking / Availability / Prices (Smoobu) ----------------
+
+function isBookingIntent(userText) {
+  const t = foldText(userText);
+  if (!t) return false;
+
+  // Strong signals
+  if (/(verfuegb|verfug|verfugbar|availability|available|frei|buch|booking|reserve)/i.test(t)) return true;
+
+  // Price queries for stays
+  if (/(preis|preise|kosten|rate|rates|angebot|angebote|quote)/i.test(t)) return true;
+
+  // Date patterns usually indicate a stay query
+  if (/(20\d{2}-\d{2}-\d{2})/.test(t)) return true;
+  if (/(\d{1,2})[\.\/-](\d{1,2})[\.\/-](\d{2,4})/.test(t)) return true;
+
+  return false;
+}
+
+function extractDateRange(userText) {
+  const raw = String(userText || "");
+  const hits = [];
+  const re = /(\d{4}-\d{2}-\d{2}|\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4})/g;
+  for (const m of raw.matchAll(re)) {
+    const iso = toISODate(m[1]);
+    if (iso) hits.push(iso);
+  }
+  if (hits.length >= 2) return { arrival: hits[0], departure: hits[1] };
+
+  // Also support explicit keywords (anreise/abreise)
+  const a = raw.match(/anreise[:\s]*([0-9\.\-\/]{6,12})/i);
+  const d = raw.match(/abreise[:\s]*([0-9\.\-\/]{6,12})/i);
+  const aIso = a ? toISODate(a[1]) : null;
+  const dIso = d ? toISODate(d[1]) : null;
+  return { arrival: aIso || null, departure: dIso || null };
+}
+
+function extractGuestCount(userText) {
+  const t = foldText(userText);
+
+  // Common German phrases
+  if (/\bzu zweit\b/.test(t)) return 2;
+  if (/\bzu dritt\b/.test(t)) return 3;
+  if (/\bzu viert\b/.test(t)) return 4;
+
+  // Numeric patterns
+  const m =
+    t.match(/(\d+)\s*(personen|person|gaeste|gaste|gaste|gaeste|pax|people|erwachsene|adults|kids|kinder)?\b/);
+  if (m) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n > 0 && n < 30) return n;
+  }
+  return null;
+}
+
+function isoToDE(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : String(iso || "");
+}
+
+function nightsBetween(arrivalIso, departureIso) {
+  try {
+    const a = new Date(`${arrivalIso}T00:00:00Z`).getTime();
+    const d = new Date(`${departureIso}T00:00:00Z`).getTime();
+    const n = Math.round((d - a) / 86400000);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatMoney(amount, currency) {
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n <= 0) return "auf Anfrage";
+  const cur = currency || "EUR";
+  try {
+    return new Intl.NumberFormat("de-DE", { style: "currency", currency: cur }).format(n);
+  } catch {
+    return `${n.toFixed(2)} ${cur}`;
+  }
+}
+
+async function fetchStayOptions({ arrival, departure, guests }) {
+  if (!SMOOBU_CUSTOMER_ID) {
+    const e = new Error("SMOOBU_CUSTOMER_ID missing");
+    e.status = 500;
+    throw e;
+  }
+
+  const payload = {
+    arrivalDate: arrival,
+    departureDate: departure,
+    apartments: [],
+    customerId: Number(SMOOBU_CUSTOMER_ID),
+  };
+  const g = Number(guests);
+  if (Number.isFinite(g) && g > 0) payload.guests = g;
+
+  const cacheKey = JSON.stringify(payload);
+  const cached = availabilityCacheGet(cacheKey);
+  if (cached) return cached;
+
+  const data = await smoobuFetch("/booking/checkApartmentAvailability", {
+    method: "POST",
+    jsonBody: payload,
+  });
+
+  availabilityCacheSet(cacheKey, data);
+  return data;
+}
+
+function buildStayOptionList(data, { guests, unitFilter, categoryFilter } = {}) {
+  const available = Array.isArray(data?.availableApartments) ? data.availableApartments : [];
+  const prices = data?.prices || {};
+  const opts = [];
+
+  for (const idRaw of available) {
+    const id = Number(idRaw);
+    if (!Number.isFinite(id)) continue;
+
+    const unit = findUnitByApartmentId(id);
+    if (unitFilter && unit && foldText(unit.name) !== foldText(unitFilter)) continue;
+    if (categoryFilter && unit && unit.category !== categoryFilter) continue;
+
+    // Respect max occupancy if we know it
+    if (unit?.max_persons && Number.isFinite(Number(guests)) && Number(guests) > Number(unit.max_persons)) continue;
+
+    const p = prices?.[idRaw] || prices?.[String(id)] || null;
+
+    opts.push({
+      apartmentId: id,
+      name: unit?.name || `Apartment ${id}`,
+      category: unit?.category || null,
+      m2: unit?.m2 ?? null,
+      max_persons: unit?.max_persons ?? null,
+      details_url: unit?.details_url || null,
+      book_url: unit?.book_url || `/buchen/?apartmentId=${id}`,
+      price: p?.price ?? null,
+      currency: p?.currency ?? null,
+    });
+  }
+
+  opts.sort((a, b) => {
+    const ap = Number(a.price);
+    const bp = Number(b.price);
+    const aOk = Number.isFinite(ap) && ap > 0;
+    const bOk = Number.isFinite(bp) && bp > 0;
+    if (aOk && bOk) return ap - bp;
+    if (aOk) return -1;
+    if (bOk) return 1;
+    return String(a.name).localeCompare(String(b.name), "de");
+  });
+
+  return opts;
+}
+
+function bookingActionsForMissingGuests(locale) {
+  const de = [
+    { type: "postback", label: "2 Personen", message: "2 Personen", kind: "primary" },
+    { type: "postback", label: "3 Personen", message: "3 Personen" },
+    { type: "postback", label: "4 Personen", message: "4 Personen" },
+    { type: "postback", label: "5 Personen", message: "5 Personen" },
+    { type: "link", label: "Online buchen", url: "/buchen/", kind: "link" },
+  ];
+  const en = [
+    { type: "postback", label: "2 guests", message: "2 guests", kind: "primary" },
+    { type: "postback", label: "3 guests", message: "3 guests" },
+    { type: "postback", label: "4 guests", message: "4 guests" },
+    { type: "postback", label: "5 guests", message: "5 guests" },
+    { type: "link", label: "Book online", url: "/buchen/", kind: "link" },
+  ];
+  return (String(locale || "").toLowerCase().startsWith("en")) ? en : de;
+}
+
+function bookingActionsForResults(opts, { showDetails = true } = {}) {
+  const actions = [];
+  const top = opts.slice(0, 4);
+  for (const o of top) {
+    actions.push({ type: "link", label: `Buchen: ${o.name}`, url: o.book_url, kind: "primary" });
+    if (showDetails && o.details_url) actions.push({ type: "link", label: `Details: ${o.name}`, url: o.details_url });
+  }
+  actions.push({ type: "postback", label: "Andere Daten", message: "Andere Daten" });
+  actions.push({ type: "link", label: "Alle Optionen im Buchungstool", url: "/buchen/" });
+  return actions;
+}
+
+async function maybeHandleBookingChat(lastUser, sessionId, locale) {
+  const t = String(lastUser || "").trim();
+  if (!t) return null;
+
+  const isIntent = isBookingIntent(t);
+  const sess = sessionId ? (getSession(sessionId) || { ts: Date.now() }) : null;
+  const booking = (sess && sess.booking) ? sess.booking : null;
+  const hasContext = Boolean(booking && booking.inProgress);
+
+  if (!isIntent && !hasContext) return null;
+
+  // Session is recommended for a smooth flow (buttons / follow-ups).
+  const s = sessionId ? (getSession(sessionId) || { ts: Date.now() }) : { ts: Date.now() };
+  s.booking = s.booking || {};
+  s.booking.inProgress = true;
+
+  // Reset / start over
+  if (/^(reset|neu|von vorne|andere daten|andere termine|start over)$/i.test(foldText(t))) {
+    s.booking = { inProgress: true };
+    s.ts = Date.now();
+    if (sessionId) sessionState.set(sessionId, s);
+    return {
+      reply: "Alles klar. Nenne mir bitte **Anreise** und **Abreise** (YYYY-MM-DD) und die **Anzahl Personen**.",
+      actions: bookingActionsForMissingGuests(locale),
+      source: "smoobu",
+    };
+  }
+
+  // Update draft with whatever we can extract
+  const range = extractDateRange(t);
+  if (range.arrival) s.booking.arrival = range.arrival;
+  if (range.departure) s.booking.departure = range.departure;
+
+  const guests = extractGuestCount(t);
+  if (guests) s.booking.guests = guests;
+
+  const unit = findUnitMentionInText(t);
+  if (unit) s.booking.unitFilter = unit.name;
+
+  const cat = detectUnitCategoryFilter(t);
+  if (cat) s.booking.categoryFilter = cat;
+
+  // Persist session
+  s.ts = Date.now();
+  if (sessionId) sessionState.set(sessionId, s);
+
+  const arrival = s.booking.arrival || null;
+  const departure = s.booking.departure || null;
+  const g = s.booking.guests || null;
+
+  if (!arrival || !departure) {
+    return {
+      reply:
+        "Für die Verfügbarkeit/Preise brauche ich **Anreise** und **Abreise**.\n" +
+        "Bitte im Format **YYYY-MM-DD** (z. B. **2026-02-01** bis **2026-02-05**).",
+      actions: bookingActionsForMissingGuests(locale),
+      source: "smoobu",
+    };
+  }
+
+  if (!g) {
+    const n = nightsBetween(arrival, departure);
+    return {
+      reply:
+        `Danke! Zeitraum: **${isoToDE(arrival)}** bis **${isoToDE(departure)}**` +
+        (n ? ` (**${n} Nächte**)` : "") +
+        `.\nWie viele Personen seid ihr?`,
+      actions: bookingActionsForMissingGuests(locale),
+      source: "smoobu",
+    };
+  }
+
+  // Fetch options from Smoobu
+  const data = await fetchStayOptions({ arrival, departure, guests: g });
+  const opts = buildStayOptionList(data, {
+    guests: g,
+    unitFilter: s.booking.unitFilter,
+    categoryFilter: s.booking.categoryFilter,
+  });
+
+  const n = nightsBetween(arrival, departure);
+  if (!opts.length) {
+    return {
+      reply:
+        `Leider finde ich für **${isoToDE(arrival)}** bis **${isoToDE(departure)}**` +
+        (n ? ` (${n} Nächte)` : "") +
+        ` und **${g} Personen** keine freien Einheiten.` +
+        `\nMöchtest du andere Daten prüfen?`,
+      actions: [
+        { type: "postback", label: "Andere Daten", message: "Andere Daten", kind: "primary" },
+        { type: "link", label: "Online buchen (alle Optionen)", url: "/buchen/" },
+      ],
+      source: "smoobu",
+    };
+  }
+
+  const header =
+    `✅ Frei für **${isoToDE(arrival)}** bis **${isoToDE(departure)}**` +
+    (n ? ` (${n} Nächte)` : "") +
+    ` · **${g} Personen**` +
+    (s.booking.categoryFilter ? ` · Filter: **${s.booking.categoryFilter}**` : "") +
+    (s.booking.unitFilter ? ` · Wunsch: **${s.booking.unitFilter}**` : "") +
+    `\n` +
+    `Preis (gesamt) laut Smoobu:`;
+
+  const lines = opts.slice(0, 6).map((o, i) => {
+    const meta = [
+      o.category ? o.category : null,
+      (o.max_persons ? `max ${o.max_persons}` : null),
+      (o.m2 ? `${o.m2} m²` : null),
+    ].filter(Boolean).join(" · ");
+    const money = formatMoney(o.price, o.currency);
+    return `${i + 1}) **${o.name}**${meta ? ` (${meta})` : ""} – **${money}**`;
+  });
+
+  return {
+    reply: [header, ...lines].join("\n"),
+    actions: bookingActionsForResults(opts),
+    source: "smoobu",
+  };
+}
+
 
 function mdLink(label, url) {
   // The frontend renders clickable sources separately via `links`.
@@ -857,8 +1228,8 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     // --- Build Smoobu reservation payload ---
     const reservationPayload = {
       // Smoobu expects YYYY-MM-DD
-      arrivalDate: offer.arrivalDate,
-      departureDate: offer.departureDate,
+      arrival: offer.arrivalDate,
+      departure: offer.departureDate,
       apartmentId: offer.apartmentId,
       channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
 
@@ -882,7 +1253,7 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     };
 
     // Create booking in Smoobu
-    const result = await smoobuFetch("/reservations", {
+    const result = await smoobuFetch("/api/reservations", {
       method: "POST",
       jsonBody: reservationPayload,
     });
@@ -895,8 +1266,8 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       id: bookingId,
       offerUsed: {
         apartmentId: offer.apartmentId,
-        arrivalDate: offer.arrivalDate,
-        departureDate: offer.departureDate,
+        arrival: offer.arrivalDate,
+        departure: offer.departureDate,
         guests: offer.guests,
         price: offer.price,
         currency: offer.currency,
@@ -993,7 +1364,25 @@ async function conciergeChatHandler(req, res) {
       }
     }
 
-    // Knowledge-first (NO hallucinations): lists/recommendations come from knowledge/verified.json
+    
+
+    // Booking / availability / prices (Smoobu) — deterministic, no hallucinations
+    try {
+      const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
+      if (booking) return res.json(booking);
+    } catch (err) {
+      console.error("❌ Booking flow error:", err);
+      const isEn = String(locale || "").toLowerCase().startsWith("en");
+      return res.status(err.status || 500).json({
+        reply: isEn
+          ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
+          : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
+        error: "booking_error",
+        details: err.details || null,
+      });
+    }
+
+// Knowledge-first (NO hallucinations): lists/recommendations come from knowledge/verified.json
     // The widget can optionally send { radiusKm: 35 }.
     const radiusKmRaw = body.radiusKm ?? body.radius ?? body.distanceKm ?? body.distance;
     const radiusKm = Number.isFinite(Number(radiusKmRaw)) ? Number(radiusKmRaw) : 35;
@@ -1077,7 +1466,6 @@ function isPublicSmoobuAllowed(method, path) {
   if (method === "GET") {
     if (path === "/api/apartments" || path.startsWith("/api/apartments/")) return true;
     if (path.startsWith("/api/rates")) return true; // optional
-    if (path === "/api/bookings" || path.startsWith("/api/bookings/")) return true; // read-only booking lookup
   }
   if (method === "POST" && path === "/booking/checkApartmentAvailability") return true;
   return false;
@@ -1131,8 +1519,9 @@ app.get("/api/smoobu/apartments/:id", async (req, res) => {
 });
 
 app.get("/api/smoobu/bookings", async (req, res) => {
+  if (!forbidUnlessAdmin(req, res)) return;
   try {
-    const data = await smoobuFetch("/api/bookings", { method: "GET", query: req.query });
+    const data = await smoobuFetch("/api/reservations", { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu bookings list error:", err);
@@ -1141,9 +1530,10 @@ app.get("/api/smoobu/bookings", async (req, res) => {
 });
 
 app.get("/api/smoobu/bookings/:id", async (req, res) => {
+  if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu booking details error:", err);
@@ -1161,10 +1551,10 @@ function forbidUnlessAdmin(req, res) {
 app.post("/api/smoobu/bookings", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
-    const data = await smoobuFetch("/api/bookings", { method: "POST", jsonBody: req.body || {} });
+    const data = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
-    console.error("❌ Smoobu create booking error:", err);
+    console.error("❌ Smoobu create reservation error:", err);
     res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
   }
 });
@@ -1173,10 +1563,10 @@ app.patch("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "POST", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
-    console.error("❌ Smoobu update booking error:", err);
+    console.error("❌ Smoobu update reservation error:", err);
     res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
   }
 });
@@ -1185,10 +1575,10 @@ app.delete("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}/cancel`, { method: "POST", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
-    console.error("❌ Smoobu delete booking error:", err);
+    console.error("❌ Smoobu cancel reservation error:", err);
     res.status(err.status || 500).json({ error: "smoobu_error", details: err.details || null });
   }
 });
