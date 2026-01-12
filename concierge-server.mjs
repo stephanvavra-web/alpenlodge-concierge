@@ -254,6 +254,8 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
   if (!k || !k.categories) return null;
   const cats = k.categories;
   const dirs = Array.isArray(k.directories) ? k.directories : [];
+  // Category aliases (legacy detector -> unified knowledge schema)
+  const catKey = ({ lakes: "lakes_pools_wellness", wellness_pools: "lakes_pools_wellness" }[cat] || cat);
 
   const within = (item) => {
     const d = item?.approx_km_road;
@@ -274,7 +276,8 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
     bayern_daytrips: "Ausflüge Bayern",
   }[cat] || cat;
 
-  const items = (cats[cat] || []).filter(within);
+  const itemsAll = (cats[catKey] || []).filter(within);
+  const items = itemsAll.slice(0, 12);
 
   // Pick a few relevant official directories (fallback/sources)
   const dirKeywords = {
@@ -311,24 +314,19 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
     items.forEach((it, idx) => {
       const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
       const note = it.summary ? ` — ${it.summary}` : "";
-      lines.push(`${idx + 1}) ${it.name}${dist}${note}`);
+      const url = it.url || it.sourceUrl || "";
+      const src = (it.sourceUrl && it.sourceUrl !== it.url) ? it.sourceUrl : "";
+      const linkPart = url ? ` — ${url}` : "";
+      const srcPart = src ? ` (Quelle: ${src})` : "";
+      lines.push(`${idx + 1}) ${it.name}${dist}${note}${linkPart}${srcPart}`);
     });
   }
 
   if (extraDirs.length) {
     lines.push("\n**Offizielle Quellen/Verzeichnisse:**");
-    for (const d of extraDirs) lines.push(`- ${mdLink(d.label, d.url)}`);
+    for (const d of extraDirs) lines.push(`- ${d.label}: ${d.url}`);
   }
 
-
-  // Always attach official sources (directories) in the reply.
-  if (extraDirs.length) {
-    lines.push("");
-    lines.push("**Quellen (offiziell):**");
-    for (const d of extraDirs) {
-      if (d?.label && d?.url) lines.push(`- ${mdLink(d.label, d.url)}`);
-    }
-  }
 
   const links = [];
 
@@ -955,6 +953,9 @@ async function conciergeChatHandler(req, res) {
 
     // If user replies with a number after a list (e.g. "2"), resolve it from session memory.
     const sel = parseListSelection(lastUser);
+    if (sel && !sessionId) {
+      return res.json({ reply: "Bitte frage zuerst nach einer Liste (z. B. **Skigebiete 35 km**) und antworte danach mit der Nummer (z. B. **2**).", source: "system" });
+    }
     if (sel && sessionId) {
       const sess = getSession(sessionId);
       const list = sess?.lastList || [];
@@ -964,7 +965,8 @@ async function conciergeChatHandler(req, res) {
         const replyLines = [
           `**${it.name}${dist}**`,
           it.summary ? it.summary : "",
-          "\nSag mir, was du wissen willst: Öffnungszeiten, Anfahrt, Preise, Schwierigkeit, oder Alternative in der Nähe.",
+          it.url ? `Link: ${it.url}` : "",
+          (it.sourceUrl && it.sourceUrl !== it.url) ? `Quelle: ${it.sourceUrl}` : "",
         ].filter(Boolean);
         const links = [];
         if (it.url) links.push({ label: it.name, url: it.url });
@@ -1006,7 +1008,7 @@ async function conciergeChatHandler(req, res) {
     const hardRules = [
       "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
       "Wenn du etwas nicht sicher weißt, verweise auf offizielle Verzeichnisse/Quellen und gib Links.",
-      "Wenn der User nach Empfehlungen/Listen fragt, bitte nach Kriterien (Budget, Küche, Level, Saison) statt zu raten.",
+      "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus dem verifizierten Knowledge (inkl. Links). Keine Rückfragen.",
     ].join(" ");
     const instructions = `${hardRules} ${baseSys}`.trim();
     const input = messages
