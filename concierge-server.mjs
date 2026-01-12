@@ -258,6 +258,7 @@ app.get("/api/smoobu/selftest", async (req, res) => {
   // 2) Availability (next 2 days) if we have an apartment id
   await step("availability", async () => {
     if (!apartmentId) return { skipped: true, reason: "no apartmentId" };
+    if (!SMOOBU_CUSTOMER_ID) return { skipped: true, reason: "SMOOBU_CUSTOMER_ID not set" };
     const today = new Date();
     const start = new Date(today.getTime() + 24*60*60*1000);
     const end = new Date(today.getTime() + 3*24*60*60*1000);
@@ -265,7 +266,8 @@ app.get("/api/smoobu/selftest", async (req, res) => {
     const body = {
       arrivalDate: iso(start),
       departureDate: iso(end),
-      apartments: [Number(apartmentId)]
+      apartments: [Number(apartmentId)],
+      customerId: Number(SMOOBU_CUSTOMER_ID)
     };
     const d = await smoobuFetch("/booking/checkApartmentAvailability", { method: "POST", jsonBody: body });
     return { apartmentId, arrivalDate: body.arrivalDate, departureDate: body.departureDate, sample: d };
@@ -458,8 +460,7 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    jsonBody: payload,
   });
 
   const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
