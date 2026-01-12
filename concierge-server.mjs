@@ -566,7 +566,7 @@ app.get("/api/debug/vars", (req, res) => {
     },
     booking: {
       bookingTokenSecretSet: Boolean(process.env.BOOKING_TOKEN_SECRET),
-      rateLimitPerMin: RATE_LIMIT_PER_MIN,
+      rateLimitPerMin: BOOKING_RATE_LIMIT_PER_MIN,
     },
   });
 });
@@ -646,7 +646,8 @@ async function smoobuAvailabilityHandler(req, res) {
       apartments: Array.isArray(apartments) ? apartments : [],
       customerId: Number(SMOOBU_CUSTOMER_ID),
     };
-    if (typeof guests === "number") payload.guests = guests;
+    const guestsNum = (guests === undefined || guests === null || guests === "") ? undefined : Number(guests);
+    if (Number.isFinite(guestsNum) && guestsNum > 0) payload.guests = guestsNum;
     if (typeof discountCode === "string" && discountCode.trim()) payload.discountCode = discountCode.trim();
 
     const cacheKey = JSON.stringify(payload);
@@ -670,9 +671,9 @@ try {
       const priceInfo = data.prices?.[apartmentId] || null;
       const offerPayload = {
         apartmentId,
-        arrivalDate,
-        departureDate,
-        guests: Number(guests || 0) || null,
+        arrivalDate: aIso,
+        departureDate: dIso,
+        guests: (Number.isFinite(guestsNum) && guestsNum > 0) ? guestsNum : null,
         price: priceInfo?.price ?? null,
         currency: priceInfo?.currency ?? null,
         exp,
@@ -736,15 +737,14 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const payload = {
     customerId,
-    arrivalDate,
-    departureDate,
+    arrivalDate: aIso,
+    departureDate: dIso,
     guests: Number(guests),
   };
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    jsonBody: payload,
   });
 
   const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
@@ -757,8 +757,8 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
     if (!p) continue;
     offerPayloads.push({
       apartmentId: Number(id),
-      arrivalDate,
-      departureDate,
+      arrivalDate: aIso,
+      departureDate: dIso,
       guests: Number(guests),
       price: Number(p?.price ?? 0),
       currency: p?.currency || "EUR",
@@ -870,8 +870,7 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     // Create booking in Smoobu
     const result = await smoobuFetch("/reservations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reservationPayload),
+      jsonBody: reservationPayload,
     });
 
     // Some Smoobu responses return {id:...} others {reservationId:...}
