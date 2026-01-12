@@ -8,7 +8,7 @@ const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 // API Docs: https://docs.smoobu.com/  (Auth-Header: Api-Key)
 const SMOOBU_API_KEY = process.env.SMOOBU_API_KEY;
 const SMOOBU_CUSTOMER_ID = process.env.SMOOBU_CUSTOMER_ID; // int (dein Smoobu User/Customer ID)
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // optional (not required for normal operations)
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/admin Smoobu routes
 const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
@@ -209,6 +209,120 @@ function isWeatherQuestion(text = "") {
   const t = text.toLowerCase();
   return /(wetter|forecast|weather|regen|schnee|temperatur|sonnig|bewölkt)/.test(t);
 }
+// ---------------- Input normalization helpers (no more "dd.mm.yy" errors) ----------------
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function toIsoDate(year, month, day) {
+  const y = Number(year), m = Number(month), d = Number(day);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  if (y < 1900 || y > 2100) return null;
+  if (m < 1 || m > 12) return null;
+  if (d < 1 || d > 31) return null;
+  // Validate real date (e.g. 31.02 should fail)
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || (dt.getUTCMonth() + 1) !== m || dt.getUTCDate() !== d) return null;
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+
+function parseFlexibleDate(input) {
+  if (input === undefined || input === null) return null;
+  if (typeof input === "string") input = input.trim();
+  if (typeof input === "number") input = String(input);
+  if (typeof input !== "string" || !input) return null;
+
+  // YYYY-MM-DD or YYYY/M/D
+  let m = input.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (m) return toIsoDate(m[1], m[2], m[3]);
+
+  // D.M.YY / DD.MM.YYYY / with - or /
+  m = input.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2}|\d{4})$/);
+  if (m) {
+    let year = Number(m[3]);
+    if (m[3].length === 2) year = 2000 + year; // booking context: assume 20xx
+    return toIsoDate(year, m[2], m[1]);
+  }
+
+  // ddmmyy / ddmmyyyy (e.g. 120126, 12012026)
+  m = input.match(/^(\d{2})(\d{2})(\d{2})$/);
+  if (m) return toIsoDate(2000 + Number(m[3]), m[2], m[1]);
+
+  m = input.match(/^(\d{2})(\d{2})(\d{4})$/);
+  if (m) return toIsoDate(m[3], m[2], m[1]);
+
+  return null;
+}
+
+function parseGuests(input) {
+  if (input === undefined || input === null) return undefined;
+  if (typeof input === "number" && Number.isFinite(input)) return Math.max(1, Math.floor(input));
+  if (typeof input === "string") {
+    const s = input.trim();
+    if (!s) return undefined;
+    const n = Number(s.replace(",", "."));
+    if (Number.isFinite(n)) return Math.max(1, Math.floor(n));
+  }
+  return undefined;
+}
+
+function parseNonNegInt(input, fallback = 0) {
+  if (input === undefined || input === null || input === "") return fallback;
+  const n = typeof input === "number" ? input : Number(String(input).trim());
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.floor(n));
+}
+
+
+
+function normalizeName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9äöüß]/g, "");
+}
+
+async function getApartmentsList() {
+  const cached = cacheGet(cache.apartments);
+  if (cached) {
+    // Smoobu returns either array or object; we accept both.
+    const arr = Array.isArray(cached) ? cached : (cached?.apartments || cached?.data || []);
+    return Array.isArray(arr) ? arr : [];
+  }
+  const data = await smoobuFetch("/api/apartments", { method: "GET" });
+  cache.apartments.ts = now();
+  cache.apartments.value = data;
+  const arr = Array.isArray(data) ? data : (data?.apartments || data?.data || []);
+  return Array.isArray(arr) ? arr : [];
+}
+
+async function resolveApartmentIds({ apartments, apartmentId, apartmentName } = {}) {
+  // priority: explicit apartments list / apartmentId; fallback: apartmentName mapping
+  let ids = [];
+
+  if (Array.isArray(apartments)) {
+    ids = apartments.map((x) => Number(x)).filter((n) => Number.isFinite(n));
+  } else if (typeof apartments === "string") {
+    ids = apartments
+      .split(/[;,]/g)
+      .map((x) => Number(String(x).trim()))
+      .filter((n) => Number.isFinite(n));
+  }
+
+  if (!ids.length && apartmentId !== undefined && apartmentId !== null) {
+    const n = Number(apartmentId);
+    if (Number.isFinite(n)) ids = [n];
+  }
+
+  if (!ids.length && typeof apartmentName === "string" && apartmentName.trim()) {
+    const want = normalizeName(apartmentName);
+    const list = await getApartmentsList();
+    const hit = list.find((a) => normalizeName(a?.name) === want)
+      || list.find((a) => normalizeName(a?.name).includes(want) || want.includes(normalizeName(a?.name)));
+    const id = hit?.id ?? hit?.apartmentId ?? null;
+    if (id) ids = [Number(id)].filter((n) => Number.isFinite(n));
+  }
+
+  return ids;
+}
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -225,111 +339,43 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Selftest: checks Smoobu connectivity (READ-ONLY). Safe to call for diagnostics.
-app.get("/api/smoobu/selftest", async (req, res) => {
-  const started = Date.now();
-  const report = { ok: true, ts: new Date().toISOString(), steps: [], ms: 0 };
-  function step(name, fn) {
-    return (async () => {
-      const t0 = Date.now();
-      try {
-        const data = await fn();
-        report.steps.push({ name, ok: true, ms: Date.now() - t0, sample: data });
-        return data;
-      } catch (e) {
-        report.ok = false;
-        report.steps.push({ name, ok: false, ms: Date.now() - t0, error: { status: e.status, details: e.details || String(e) } });
-        return null;
-      }
-    })();
-  }
 
-  // 1) Apartments
-  const apartments = await step("apartments", async () => {
-    const d = await smoobuFetch("/api/apartments", { method: "GET" });
-    const arr = d?.apartments || d?.data || d || [];
-    const first = Array.isArray(arr) ? arr[0] : null;
-    return { count: Array.isArray(arr) ? arr.length : null, first };
-  });
-
-  // derive apartmentId
-  let apartmentId = apartments?.first?.id ?? apartments?.first?.apartmentId ?? null;
-
-  // 2) Availability (next 2 days) if we have an apartment id
-  await step("availability", async () => {
-    if (!apartmentId) return { skipped: true, reason: "no apartmentId" };
-    if (!SMOOBU_CUSTOMER_ID) return { skipped: true, reason: "SMOOBU_CUSTOMER_ID not set" };
-    const today = new Date();
-    const start = new Date(today.getTime() + 24*60*60*1000);
-    const end = new Date(today.getTime() + 3*24*60*60*1000);
-    const iso = (d) => d.toISOString().slice(0,10);
-    const body = {
-      arrivalDate: iso(start),
-      departureDate: iso(end),
-      apartments: [Number(apartmentId)],
-      customerId: Number(SMOOBU_CUSTOMER_ID)
-    };
-    const d = await smoobuFetch("/booking/checkApartmentAvailability", { method: "POST", jsonBody: body });
-    return { apartmentId, arrivalDate: body.arrivalDate, departureDate: body.departureDate, sample: d };
-  });
-
-  // 3) Rates (requires start/end + apartments[])
-  await step("rates", async () => {
-    if (!apartmentId) return { skipped: true, reason: "no apartmentId" };
-    const today = new Date();
-    const start = new Date(today.getTime() + 24*60*60*1000);
-    const end = new Date(today.getTime() + 3*24*60*60*1000);
-    const iso = (d) => d.toISOString().slice(0,10);
-    const q = normalizeRatesQuery({ start_date: iso(start), end_date: iso(end), apartments: [String(apartmentId)] });
-    const d = await smoobuFetch("/api/rates", { method: "GET", query: q });
-    return { apartmentId, start_date: q.start_date, end_date: q.end_date, keys: Object.keys(d || {}).slice(0, 5) };
-  });
-
-  // 4) Reservations list (next 30 days)
-  await step("reservations", async () => {
-    const today = new Date();
-    const from = today.toISOString().slice(0,10);
-    const to = new Date(today.getTime() + 30*24*60*60*1000).toISOString().slice(0,10);
-    const q = { from, to, pageSize: 10 };
-    const d = await smoobuFetch("/api/reservations", { method: "GET", query: q });
-    const arr = d?.reservations || d?.data || d || [];
-    return { from, to, count: Array.isArray(arr) ? arr.length : null };
-  });
-
-  report.ms = Date.now() - started;
-  res.json(report);
-});
-
-
-// Normalize rates query for Smoobu: requires start_date, end_date and apartments[] (array)
-function normalizeRatesQuery(q = {}) {
-  const out = { ...q };
-  // Normalize apartments into "apartments[]" array (Smoobu expects apartments[])
-  let a = q["apartments[]"] ?? q.apartments ?? [];
-  if (typeof a === "string") {
-    a = a.split(",").map(s => s.trim()).filter(Boolean);
-  }
-  if (!Array.isArray(a)) a = [String(a)];
-  // Move into apartments[]
-  delete out.apartments;
-  delete out["apartments[]"];
-  out["apartments[]"] = a;
-
-  // Common aliases
-  if (!out.start_date && q.start) out.start_date = q.start;
-  if (!out.end_date && q.end) out.end_date = q.end;
-
-  return out;
+function envBool(name) {
+  return !!(process.env[name] && String(process.env[name]).trim());
+}
+function envSafeValue(name) {
+  // Only for non-secret numeric/config values
+  const v = process.env[name];
+  if (v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  // prevent accidental leak for anything that looks like a key
+  if (/key|token|secret|password/i.test(name)) return null;
+  return s;
 }
 
-// Global safety: never crash the process on unhandled errors (log them instead)
-process.on("unhandledRejection", (reason) => {
-  console.error("❌ unhandledRejection:", reason);
+// Debug endpoint: shows which ENV vars are present (without revealing secrets)
+app.get("/api/debug/vars", (req, res) => {
+  res.json({
+    ok: true,
+    node: process.version,
+    openai: {
+      apiKeySet: envBool("OPENAI_API_KEY"),
+      model: envSafeValue("OPENAI_MODEL") || "gpt-5.2",
+      fallback: envSafeValue("OPENAI_MODEL_FALLBACK") || "gpt-4.1-mini",
+    },
+    smoobu: {
+      apiKeySet: envBool("SMOOBU_API_KEY"),
+      customerId: envSafeValue("SMOOBU_CUSTOMER_ID"),
+      channelId: envSafeValue("SMOOBU_CHANNEL_ID") || "70",
+      adminTokenSet: envBool("ADMIN_TOKEN"),
+    },
+    booking: {
+      bookingTokenSecretSet: envBool("BOOKING_TOKEN_SECRET"),
+      rateLimitPerMin: Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30"),
+    },
+  });
 });
-process.on("uncaughtException", (err) => {
-  console.error("❌ uncaughtException:", err);
-});
-
 
 // ---------------- Smoobu proxy endpoints (für Website/Concierge) ----------------
 // 1) Apartments
@@ -361,19 +407,36 @@ async function smoobuAvailabilityHandler(req, res) {
       return res.status(500).json({ error: "SMOOBU_CUSTOMER_ID missing" });
     }
 
-    const { arrivalDate, departureDate, apartments, guests, discountCode } = req.body || {};
+    const body = req.body || {};
+    const rawArrival = body.arrivalDate ?? body.arrival ?? body.from ?? body.startDate ?? body.start;
+    const rawDeparture = body.departureDate ?? body.departure ?? body.to ?? body.endDate ?? body.end;
+
+    const arrivalDate = parseFlexibleDate(rawArrival);
+    const departureDate = parseFlexibleDate(rawDeparture);
     if (!arrivalDate || !departureDate) {
-      return res.status(400).json({ error: "arrivalDate and departureDate required (YYYY-MM-DD)" });
+      return res.status(400).json({
+        error: "bad_date_format",
+        hint: "Use YYYY-MM-DD or formats like 12.1.26 / 12.01.2026 / 120126 / 12-01-26",
+        received: { arrivalDate: rawArrival ?? null, departureDate: rawDeparture ?? null },
+      });
     }
 
+    const guests = parseGuests(body.guests);
+    const apartments = await resolveApartmentIds({
+      apartments: body.apartments,
+      apartmentId: body.apartmentId,
+      apartmentName: body.apartmentName,
+    });
+
+    const discountCode = typeof body.discountCode === "string" ? body.discountCode.trim() : "";
     const payload = {
       arrivalDate,
       departureDate,
-      apartments: Array.isArray(apartments) ? apartments : [],
+      apartments,
       customerId: Number(SMOOBU_CUSTOMER_ID),
     };
     if (typeof guests === "number") payload.guests = guests;
-    if (typeof discountCode === "string" && discountCode.trim()) payload.discountCode = discountCode.trim();
+    if (discountCode) payload.discountCode = discountCode;
 
     const cacheKey = JSON.stringify(payload);
     const cached = availabilityCacheGet(cacheKey);
@@ -511,7 +574,8 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       if (!arrivalDate || !departureDate || !Number.isFinite(guests) || guests <= 0) {
         return res.status(400).json({
           error: "missing_params",
-          hint: "Provide offerToken OR (arrivalDate, departureDate, guests OR adults+children, apartmentId optional).",
+          hint: "Provide offerToken OR (arrivalDate, departureDate, guests OR adults+children, apartmentId/apartmentName optional).",
+          received: { arrivalDate: rawArrival ?? null, departureDate: rawDeparture ?? null, guests: body.guests ?? null, apartmentId: body.apartmentId ?? null, apartmentName: body.apartmentName ?? null },
         });
       }
 
@@ -552,9 +616,9 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       });
     }
 
-    const adults = Number(body.adults ?? offer.guests);
-    const children = Number(body.children ?? 0);
-    const guests = Number(body.guests ?? (adults + children) ?? offer.guests);
+    const adults = parseGuests(body.adults ?? offer.guests) ?? (parseGuests(offer.guests) ?? 1);
+    const children = parseNonNegInt(body.children ?? 0, 0);
+    const guests = parseGuests(body.guests ?? (adults + children) ?? offer.guests) ?? (adults + children);
 
     // --- Build Smoobu reservation payload ---
     const reservationPayload = {
@@ -584,10 +648,10 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     };
 
     // Create booking in Smoobu
-    const result = await smoobuFetch("/reservations", {
+    const result = await smoobuFetch("/api/reservations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reservationPayload),
+      jsonBody: reservationPayload,
+      timeoutMs: 20000,
     });
 
     // Some Smoobu responses return {id:...} others {reservationId:...}
@@ -668,21 +732,39 @@ async function conciergeChatHandler(req, res) {
     }
 
     // OpenAI
-    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+    const modelPrimary = process.env.OPENAI_MODEL || "gpt-5.2";
+    const modelFallback = process.env.OPENAI_MODEL_FALLBACK || "gpt-4.1-mini";
     const instructions = messages.find(m => m.role === "system")?.content || "";
     const input = messages
       .filter(m => m.role !== "system")
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n");
 
-    const response = await openai.responses.create({
-      model,
+let response;
+try {
+  response = await openai.responses.create({
+    model: modelPrimary,
+    instructions,
+    input,
+    temperature: 0.4,
+  });
+} catch (e) {
+  // Fallback: try a smaller/cheaper model if the primary fails (rate limits, model unavailable, etc.)
+  const msg = e?.message || "";
+  console.error("❌ OpenAI primary model failed:", modelPrimary, msg);
+  if (modelFallback && modelFallback !== modelPrimary) {
+    response = await openai.responses.create({
+      model: modelFallback,
       instructions,
       input,
       temperature: 0.4,
     });
+  } else {
+    throw e;
+  }
+}
 
-    res.json({ reply: response.output_text || "" });
+res.json({ reply: response?.output_text || "" });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
     const status = err?.status || err?.response?.status;
@@ -737,8 +819,7 @@ app.all("/api/smoobu/raw/:path(*)", async (req, res) => {
 // Komfort-Endpunkte (damit du nicht immer den /raw Weg nutzen musst)
 app.get("/api/smoobu/rates", async (req, res) => {
   try {
-    const q = normalizeRatesQuery(req.query);
-    const data = await smoobuFetch("/api/rates", { method: "GET", query: q });
+    const data = await smoobuFetch("/api/rates", { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu rates error:", err);
@@ -759,7 +840,7 @@ app.get("/api/smoobu/apartments/:id", async (req, res) => {
 
 app.get("/api/smoobu/bookings", async (req, res) => {
   try {
-    const data = await smoobuFetch("/api/reservations", { method: "GET", query: req.query });
+    const data = await smoobuFetch("/api/bookings", { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu bookings list error:", err);
@@ -770,7 +851,7 @@ app.get("/api/smoobu/bookings", async (req, res) => {
 app.get("/api/smoobu/bookings/:id", async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "GET", query: req.query });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu booking details error:", err);
@@ -778,12 +859,17 @@ app.get("/api/smoobu/bookings/:id", async (req, res) => {
   }
 });
 
-// Write endpoints (no ADMIN_TOKEN required by default)
-function forbidUnlessAdmin(req, res) { return true; }
+// Write endpoints (require ADMIN_TOKEN)
+function forbidUnlessAdmin(req, res) {
+  if (requireAdmin(req)) return true;
+  res.status(403).json({ error: "forbidden", hint: "Missing/invalid ADMIN_TOKEN. Send header X-Admin-Token or Authorization: Bearer ..." });
+  return false;
+}
+
 app.post("/api/smoobu/bookings", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
-    const data = await smoobuFetch("/api/reservations", { method: "POST", jsonBody: req.body || {} });
+    const data = await smoobuFetch("/api/bookings", { method: "POST", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu create booking error:", err);
@@ -795,7 +881,7 @@ app.patch("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}`, { method: "POST", jsonBody: req.body || {} });
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "PATCH", jsonBody: req.body || {} });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu update booking error:", err);
@@ -807,7 +893,7 @@ app.delete("/api/smoobu/bookings/:id", async (req, res) => {
   if (!forbidUnlessAdmin(req, res)) return;
   try {
     const id = String(req.params.id || "").trim();
-    const data = await smoobuFetch(`/api/reservations/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+    const data = await smoobuFetch(`/api/bookings/${encodeURIComponent(id)}`, { method: "DELETE" });
     res.json(data);
   } catch (err) {
     console.error("❌ Smoobu delete booking error:", err);
