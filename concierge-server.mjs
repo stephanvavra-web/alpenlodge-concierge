@@ -1,8 +1,16 @@
 import express from "express";
 import cors from "cors";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import OpenAI from "openai";
+
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
+
+// Resolve paths for local files (ESM-safe)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ---------------- Smoobu (läuft komplett über Render – kein PHP nötig) ----------------
 // API Docs: https://docs.smoobu.com/  (Auth-Header: Api-Key)
@@ -19,6 +27,328 @@ const cache = {
   apartments: { ts: 0, ttlMs: 5 * 60 * 1000, value: null },
   availability: new Map(), // key -> {ts, ttlMs, value}
 };
+
+// ---------------- Verified knowledge (NO HALLUCINATIONS) ----------------
+// The concierge must ONLY recommend items that exist in this file. If an item isn't here,
+// answer with official directories (also in this file) and ask the user what they want.
+const KNOWLEDGE_FILE = process.env.KNOWLEDGE_FILE || path.join(__dirname, "knowledge", "verified.json");
+let _knowledgeCache = { ts: 0, mtimeMs: 0, value: null };
+
+function loadKnowledge() {
+  try {
+    const p = path.isAbsolute(KNOWLEDGE_FILE) ? KNOWLEDGE_FILE : path.join(process.cwd(), KNOWLEDGE_FILE);
+    const st = fs.statSync(p);
+    if (_knowledgeCache.value && _knowledgeCache.mtimeMs === st.mtimeMs) return _knowledgeCache.value;
+    const raw = fs.readFileSync(p, "utf8");
+    const json = JSON.parse(raw);
+    const normalized = normalizeKnowledge(json, p);
+    _knowledgeCache = { ts: Date.now(), mtimeMs: st.mtimeMs, value: normalized };
+    return normalized;
+  } catch (e) {
+    return null;
+  }
+}
+
+
+// --- Knowledge normalization (supports multiple schemas) ---
+// We accept either:
+// 1) { categories: {ski:[...], ...}, directories:[...] }   (preferred)
+// 2) { items:[{type,...}], sources:{...}, alpenlodge:{center:{lat,lon}, default_radius_km} }  (legacy/one-file)
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function normalizeKnowledge(k, filePath = "") {
+  if (!k || typeof k !== "object") return null;
+
+  // If already in preferred schema, keep it.
+  if (k.categories && typeof k.categories === "object") {
+    if (!Array.isArray(k.directories)) k.directories = [];
+    if (!k.meta) k.meta = {};
+    k.meta._normalized = true;
+    k.meta._file = filePath;
+    return k;
+  }
+
+  const out = { meta: { _normalized: true, _file: filePath }, categories: {}, directories: [] };
+
+  // Center for distance calculations (optional).
+  const center = k?.alpenlodge?.center || k?.center || null;
+  const centerLat = typeof center?.lat === "number" ? center.lat : null;
+  const centerLon = typeof center?.lon === "number" ? center.lon : null;
+
+  // Convert sources -> directories
+  if (k.sources && typeof k.sources === "object") {
+    for (const [key, v] of Object.entries(k.sources)) {
+      if (!v) continue;
+      if (typeof v === "string") {
+        out.directories.push({ label: key, url: v });
+      } else if (typeof v === "object") {
+        const label = v.label || key;
+        const url = v.url || v.source || v.link;
+        if (url) out.directories.push({ label, url });
+      }
+    }
+  }
+  if (Array.isArray(k.directories)) {
+    for (const d of k.directories) {
+      const label = d?.label || d?.name || "Quelle";
+      const url = d?.url || d?.source || d?.link;
+      if (url) out.directories.push({ label, url });
+    }
+  }
+
+  const items = Array.isArray(k.items) ? k.items : [];
+  const catFor = (it) => {
+    const t = (it?.category || it?.type || "").toString().toLowerCase();
+    if (!t) return null;
+    if (t.includes("ski")) return "ski";
+    if (t.includes("rodel") || t.includes("schlitten") || t.includes("sled")) return "rodel";
+    if (t.includes("lake") || t.includes("see") || t.includes("baden")) return "lakes";
+    if (t.includes("wellness") || t.includes("therme") || t.includes("spa") || t.includes("pool") || t.includes("hallenbad")) return "wellness_pools";
+    if (t.includes("arzt") || t.includes("doctor") || t.includes("pharm") || t.includes("apothek") || t.includes("medical")) return "medical";
+    if (t.includes("restaurant") || t.includes("gastro") || t.includes("food") || t.includes("kulinar")) return "restaurants";
+    if (t.includes("event") || t.includes("veranst")) return "events";
+    if (t.includes("wander") || t.includes("hike") || t.includes("trail")) return "hiking";
+    if (t.includes("bayern") || t.includes("schliersee") || t.includes("spitzing") || t.includes("tegern") || t.includes("bayrischzell")) return "bayern_daytrips";
+    if (t.includes("amenity") || t.includes("ausstattung") || t.includes("alpenlodge")) return "alpenlodge";
+    return null;
+  };
+
+  for (const it of items) {
+    const cat = catFor(it);
+    if (!cat) continue;
+    if (!out.categories[cat]) out.categories[cat] = [];
+    const obj = {
+      name: it.name || it.title || it.label || "Eintrag",
+      summary: it.summary || it.details || it.description || "",
+      url: it.url || it.website || "",
+      sourceUrl: it.source || it.sourceUrl || it.url || "",
+      approx_km_road: (typeof it.approx_km_road === "number") ? it.approx_km_road : undefined,
+      lat: typeof it.lat === "number" ? it.lat : undefined,
+      lon: typeof it.lon === "number" ? it.lon : undefined,
+      type: it.type || it.category || cat,
+      raw: it
+    };
+
+    // If we have coordinates and a center, compute an approximate distance if none provided.
+    if (typeof obj.approx_km_road !== "number" && typeof obj.lat === "number" && typeof obj.lon === "number" &&
+        typeof centerLat === "number" && typeof centerLon === "number") {
+      obj.approx_km_road = haversineKm(centerLat, centerLon, obj.lat, obj.lon);
+    }
+
+    out.categories[cat].push(obj);
+  }
+
+  // Also bring over Alpenlodge amenities if present.
+  if (k.alpenlodge && Array.isArray(k.alpenlodge.amenities)) {
+    if (!out.categories.alpenlodge) out.categories.alpenlodge = [];
+    for (const a of k.alpenlodge.amenities) {
+      out.categories.alpenlodge.push({
+        name: a?.name || "Ausstattung",
+        summary: a?.details || a?.summary || "",
+        url: "",
+        sourceUrl: a?.source || "INTERNAL",
+        approx_km_road: 0,
+        type: "amenity",
+        raw: a
+      });
+    }
+  }
+
+  return out;
+}
+
+
+function norm(s) {
+  return (s || "").toString().trim();
+}
+
+function lower(s) {
+  return norm(s).toLowerCase();
+}
+
+// Normalize text for fuzzy keyword matching (handles typos like "skigebiten").
+function normText(s) {
+  return lower(s)
+    .normalize("NFD")
+    .replace(/\p{Diacritic}+/gu, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Convert common user date formats to ISO (YYYY-MM-DD).
+// Supported: YYYY-MM-DD, DD.MM.YYYY, D.M.YY, DD/MM/YY, DD-MM-YYYY, etc.
+function toISODate(input) {
+  const raw = norm(input);
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const m = raw.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.\/-](\d{2,4})$/);
+  if (!m) return null;
+  let d = Number(m[1]);
+  let mo = Number(m[2]);
+  let y = Number(m[3]);
+  if (![d, mo, y].every(Number.isFinite)) return null;
+  if (y < 100) y = (y <= 69) ? (2000 + y) : (1900 + y);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dd = String(d).padStart(2, "0");
+  const mm = String(mo).padStart(2, "0");
+  return `${y}-${mm}-${dd}`;
+}
+
+function detectCategory(userText) {
+  const t = normText(userText);
+  if (!t) return null;
+  // Ski: allow partial stems to survive typos (skigebiet -> skigeb..., skigebiten).
+  if (/(skigeb|ski\b|snowboard|piste|lift|skifahren|skilift)/i.test(t)) return "ski";
+  if (/(schlitten|rodel|rodelbahn|sled|toboggan)/i.test(t)) return "rodel";
+  if (/(badesee|see\b|baden|schwimmen|strand|badestrand)/i.test(t)) return "lakes";
+  if (/(hallenbad|therme|wellness|spa|sauna|infrarot|pool)/i.test(t)) return "wellness_pools";
+  if (/(arzt|aerzte|apotheke|notdienst|notruf|krankenhaus|doctor|pharmacy)/i.test(t)) return "medical";
+  if (/(restaurant|essen|kulinar|gasthof|cafe|bar|fruehstueck)/i.test(t)) return "restaurants";
+  if (/(event|events|veranstaltung|veranstaltungen|sportevent|sportevents|kalender|termin)/i.test(t)) return "events";
+  if (/(wandern|wanderweg|hike|spazier|winterwander|schneeschuh|langlauf|trail)/i.test(t)) return "hiking";
+  if (/(schliersee|spitzing|spitzingsee|bayerischzell|tegernsee)/i.test(t)) return "bayern_daytrips";
+  if (/(ausstattung|alpenlodge|haus|apartment|suite|fitness|wasch|trockner|laundry)/i.test(t)) return "alpenlodge";
+  return null;
+}
+
+function isListIntent(userText) {
+  const t = normText(userText);
+  return /(liste|list|tipps|empfehl|vorschl|was gibt|wo kann|ideen|top|beste|uebersicht|overview)/i.test(t);
+}
+
+// Keep minimal per-session state so the user can answer "2" after a numbered list.
+const sessionState = new Map(); // sessionId -> { lastList: [{name, summary, url, sourceUrl, approx_km_road, type}], ts }
+const SESSION_TTL_MS = 30 * 60 * 1000;
+
+function getSession(sessionId) {
+  if (!sessionId) return null;
+  const s = sessionState.get(sessionId);
+  if (!s) return null;
+  if (Date.now() - s.ts > SESSION_TTL_MS) {
+    sessionState.delete(sessionId);
+    return null;
+  }
+  return s;
+}
+
+function setLastList(sessionId, items) {
+  if (!sessionId) return;
+  sessionState.set(sessionId, { lastList: items || [], ts: Date.now() });
+}
+
+function parseListSelection(text) {
+  const t = normText(text);
+  if (!t) return null;
+  // Accept "2", "nr 2", "punkt 2", "a2" (common typo from earlier placeholder list)
+  const m = t.match(/^(?:nr\s*)?(?:punkt\s*)?(?:eintrag\s*)?(?:a\s*)?(\d{1,2})$/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return n;
+}
+
+function mdLink(label, url) {
+  // The frontend renders clickable sources separately via `links`.
+  // Keep the reply text clean and non-hallucinated.
+  if (!url) return label;
+  return `${label} ↗`;
+}
+
+function buildCategoryReply(cat, k, radiusKm = 35, sessionId = "") {
+  if (!k || !k.categories) return null;
+  const cats = k.categories;
+  const dirs = Array.isArray(k.directories) ? k.directories : [];
+
+  const within = (item) => {
+    const d = item?.approx_km_road;
+    if (typeof d !== "number") return true;
+    return d <= radiusKm;
+  };
+
+  const title = {
+    ski: "Skigebiete",
+    rodel: "Rodeln & Schlitten",
+    lakes: "Badeseen & Wasser",
+    wellness_pools: "Wellness & Bäder",
+    restaurants: "Restaurants & Kulinarik",
+    hiking: "Wanderwege (Sommer/Winter)",
+    events: "Veranstaltungen & Sportevents",
+    medical: "Ärzte/Apotheke/Notruf",
+    alpenlodge: "Alpenlodge – Ausstattung",
+    bayern_daytrips: "Ausflüge Bayern",
+  }[cat] || cat;
+
+  const items = (cats[cat] || []).filter(within);
+
+  // Pick a few relevant official directories (fallback/sources)
+  const dirKeywords = {
+    ski: ["ski", "piste", "schnee"],
+    rodel: ["rodel", "schlitten"],
+    lakes: ["baden", "see", "strand"],
+    wellness_pools: ["wellness", "sauna", "hallen"],
+    restaurants: ["gastro", "kulinar", "restaurant"],
+    events: ["event", "veranst"],
+    medical: ["notruf", "apothek"],
+    hiking: ["tour", "aktiv"],
+    bayern_daytrips: ["schliersee", "tegern"],
+    alpenlodge: ["alpenlodge"],
+  };
+  const kws = dirKeywords[cat] || [];
+  const pickedDirs = dirs.filter((d) => {
+    const l = (d?.label || "").toLowerCase();
+    return kws.some((kw) => l.includes(kw));
+  });
+  const extraDirs = (pickedDirs.length ? pickedDirs : dirs).slice(0, 6);
+
+  const lines = [];
+  lines.push(`**${title} (Radius ~${radiusKm} km)**`);
+  if (cat === "events") {
+    lines.push("Sag mir Monat/Datum und Sportart (z. B. Skirennen, Trailrun, Fußball), dann filtere ich aus den offiziellen Kalendern.");
+  }
+
+  if (!items.length) {
+    lines.push("Dazu habe ich aktuell keine verifizierten Einzeleinträge in meiner Liste.");
+  } else {
+    // Remember the last list for follow-up answers like "2".
+    setLastList(sessionId, items);
+    items.forEach((it, idx) => {
+      const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
+      const note = it.summary ? ` — ${it.summary}` : "";
+      lines.push(`${idx + 1}) ${it.name}${dist}${note}`);
+    });
+  }
+
+  if (extraDirs.length) {
+    lines.push("\n**Offizielle Quellen/Verzeichnisse:**");
+    for (const d of extraDirs) lines.push(`- ${mdLink(d.label, d.url)}`);
+  }
+
+  const links = [];
+  for (const it of items) {
+    if (it.url) links.push({ label: it.name, url: it.url });
+    if (it.sourceUrl && it.sourceUrl !== it.url) links.push({ label: `${it.name} (Quelle)`, url: it.sourceUrl });
+  }
+  for (const d of extraDirs) {
+    if (d?.url) links.push({ label: d.label, url: d.url });
+  }
+
+  return { reply: lines.join("\n"), links };
+}
 
 // ---------------- Security helpers ----------------
 // ---------------- Public booking offer tokens (anti-abuse + integrity) ----------------
@@ -209,120 +539,6 @@ function isWeatherQuestion(text = "") {
   const t = text.toLowerCase();
   return /(wetter|forecast|weather|regen|schnee|temperatur|sonnig|bewölkt)/.test(t);
 }
-// ---------------- Input normalization helpers (no more "dd.mm.yy" errors) ----------------
-function pad2(n) { return String(n).padStart(2, "0"); }
-
-function toIsoDate(year, month, day) {
-  const y = Number(year), m = Number(month), d = Number(day);
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
-  if (y < 1900 || y > 2100) return null;
-  if (m < 1 || m > 12) return null;
-  if (d < 1 || d > 31) return null;
-  // Validate real date (e.g. 31.02 should fail)
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  if (dt.getUTCFullYear() !== y || (dt.getUTCMonth() + 1) !== m || dt.getUTCDate() !== d) return null;
-  return `${y}-${pad2(m)}-${pad2(d)}`;
-}
-
-function parseFlexibleDate(input) {
-  if (input === undefined || input === null) return null;
-  if (typeof input === "string") input = input.trim();
-  if (typeof input === "number") input = String(input);
-  if (typeof input !== "string" || !input) return null;
-
-  // YYYY-MM-DD or YYYY/M/D
-  let m = input.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
-  if (m) return toIsoDate(m[1], m[2], m[3]);
-
-  // D.M.YY / DD.MM.YYYY / with - or /
-  m = input.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2}|\d{4})$/);
-  if (m) {
-    let year = Number(m[3]);
-    if (m[3].length === 2) year = 2000 + year; // booking context: assume 20xx
-    return toIsoDate(year, m[2], m[1]);
-  }
-
-  // ddmmyy / ddmmyyyy (e.g. 120126, 12012026)
-  m = input.match(/^(\d{2})(\d{2})(\d{2})$/);
-  if (m) return toIsoDate(2000 + Number(m[3]), m[2], m[1]);
-
-  m = input.match(/^(\d{2})(\d{2})(\d{4})$/);
-  if (m) return toIsoDate(m[3], m[2], m[1]);
-
-  return null;
-}
-
-function parseGuests(input) {
-  if (input === undefined || input === null) return undefined;
-  if (typeof input === "number" && Number.isFinite(input)) return Math.max(1, Math.floor(input));
-  if (typeof input === "string") {
-    const s = input.trim();
-    if (!s) return undefined;
-    const n = Number(s.replace(",", "."));
-    if (Number.isFinite(n)) return Math.max(1, Math.floor(n));
-  }
-  return undefined;
-}
-
-function parseNonNegInt(input, fallback = 0) {
-  if (input === undefined || input === null || input === "") return fallback;
-  const n = typeof input === "number" ? input : Number(String(input).trim());
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(0, Math.floor(n));
-}
-
-
-
-function normalizeName(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[^a-z0-9äöüß]/g, "");
-}
-
-async function getApartmentsList() {
-  const cached = cacheGet(cache.apartments);
-  if (cached) {
-    // Smoobu returns either array or object; we accept both.
-    const arr = Array.isArray(cached) ? cached : (cached?.apartments || cached?.data || []);
-    return Array.isArray(arr) ? arr : [];
-  }
-  const data = await smoobuFetch("/api/apartments", { method: "GET" });
-  cache.apartments.ts = now();
-  cache.apartments.value = data;
-  const arr = Array.isArray(data) ? data : (data?.apartments || data?.data || []);
-  return Array.isArray(arr) ? arr : [];
-}
-
-async function resolveApartmentIds({ apartments, apartmentId, apartmentName } = {}) {
-  // priority: explicit apartments list / apartmentId; fallback: apartmentName mapping
-  let ids = [];
-
-  if (Array.isArray(apartments)) {
-    ids = apartments.map((x) => Number(x)).filter((n) => Number.isFinite(n));
-  } else if (typeof apartments === "string") {
-    ids = apartments
-      .split(/[;,]/g)
-      .map((x) => Number(String(x).trim()))
-      .filter((n) => Number.isFinite(n));
-  }
-
-  if (!ids.length && apartmentId !== undefined && apartmentId !== null) {
-    const n = Number(apartmentId);
-    if (Number.isFinite(n)) ids = [n];
-  }
-
-  if (!ids.length && typeof apartmentName === "string" && apartmentName.trim()) {
-    const want = normalizeName(apartmentName);
-    const list = await getApartmentsList();
-    const hit = list.find((a) => normalizeName(a?.name) === want)
-      || list.find((a) => normalizeName(a?.name).includes(want) || want.includes(normalizeName(a?.name)));
-    const id = hit?.id ?? hit?.apartmentId ?? null;
-    if (id) ids = [Number(id)].filter((n) => Number.isFinite(n));
-  }
-
-  return ids;
-}
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -339,41 +555,45 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-
-function envBool(name) {
-  return !!(process.env[name] && String(process.env[name]).trim());
-}
-function envSafeValue(name) {
-  // Only for non-secret numeric/config values
-  const v = process.env[name];
-  if (v === undefined) return null;
-  const s = String(v).trim();
-  if (!s) return null;
-  // prevent accidental leak for anything that looks like a key
-  if (/key|token|secret|password/i.test(name)) return null;
-  return s;
-}
-
-// Debug endpoint: shows which ENV vars are present (without revealing secrets)
+// Quick env/status visibility (no secrets). Useful for Render debugging.
 app.get("/api/debug/vars", (req, res) => {
   res.json({
     ok: true,
     node: process.version,
     openai: {
-      apiKeySet: envBool("OPENAI_API_KEY"),
-      model: envSafeValue("OPENAI_MODEL") || "gpt-5.2",
-      fallback: envSafeValue("OPENAI_MODEL_FALLBACK") || "gpt-4.1-mini",
+      apiKeySet: Boolean(process.env.OPENAI_API_KEY),
+      model: process.env.OPENAI_MODEL || "gpt-5.2",
+      fallback: process.env.OPENAI_MODEL_FALLBACK || "gpt-4.1-mini",
     },
     smoobu: {
-      apiKeySet: envBool("SMOOBU_API_KEY"),
-      customerId: envSafeValue("SMOOBU_CUSTOMER_ID"),
-      channelId: envSafeValue("SMOOBU_CHANNEL_ID") || "70",
-      adminTokenSet: envBool("ADMIN_TOKEN"),
+      apiKeySet: Boolean(process.env.SMOOBU_API_KEY),
+      customerId: process.env.SMOOBU_CUSTOMER_ID || "",
+      channelId: process.env.SMOOBU_CHANNEL_ID || "",
+      adminTokenSet: Boolean(process.env.ADMIN_TOKEN),
     },
     booking: {
-      bookingTokenSecretSet: envBool("BOOKING_TOKEN_SECRET"),
-      rateLimitPerMin: Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30"),
+      bookingTokenSecretSet: Boolean(process.env.BOOKING_TOKEN_SECRET),
+      rateLimitPerMin: RATE_LIMIT_PER_MIN,
     },
+  });
+});
+
+// Knowledge debug (no secrets). Shows whether verified.json was loaded and how many items exist per category.
+app.get("/api/debug/knowledge", (req, res) => {
+  const k = loadKnowledge();
+  if (!k) return res.status(500).json({ ok: false, error: "knowledge_not_loaded", knowledgeFile: KNOWLEDGE_FILE });
+  const categories = k.categories || {};
+  const counts = {};
+  for (const [cat, arr] of Object.entries(categories)) counts[cat] = Array.isArray(arr) ? arr.length : 0;
+  res.json({
+    ok: true,
+    knowledgeFile: KNOWLEDGE_FILE,
+    normalized: Boolean(k?.meta?._normalized),
+    directoriesCount: Array.isArray(k.directories) ? k.directories.length : 0,
+    categoryCounts: counts,
+    sample: Object.fromEntries(
+      Object.entries(categories).map(([cat, arr]) => [cat, Array.isArray(arr) ? arr.slice(0, 2) : []])
+    ),
   });
 });
 
@@ -407,36 +627,24 @@ async function smoobuAvailabilityHandler(req, res) {
       return res.status(500).json({ error: "SMOOBU_CUSTOMER_ID missing" });
     }
 
-    const body = req.body || {};
-    const rawArrival = body.arrivalDate ?? body.arrival ?? body.from ?? body.startDate ?? body.start;
-    const rawDeparture = body.departureDate ?? body.departure ?? body.to ?? body.endDate ?? body.end;
-
-    const arrivalDate = parseFlexibleDate(rawArrival);
-    const departureDate = parseFlexibleDate(rawDeparture);
-    if (!arrivalDate || !departureDate) {
+    const { arrivalDate, departureDate, apartments, guests, discountCode } = req.body || {};
+    const aIso = toISODate(arrivalDate);
+    const dIso = toISODate(departureDate);
+    if (!aIso || !dIso) {
       return res.status(400).json({
-        error: "bad_date_format",
-        hint: "Use YYYY-MM-DD or formats like 12.1.26 / 12.01.2026 / 120126 / 12-01-26",
-        received: { arrivalDate: rawArrival ?? null, departureDate: rawDeparture ?? null },
+        error: "arrivalDate and departureDate required",
+        hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026",
       });
     }
 
-    const guests = parseGuests(body.guests);
-    const apartments = await resolveApartmentIds({
-      apartments: body.apartments,
-      apartmentId: body.apartmentId,
-      apartmentName: body.apartmentName,
-    });
-
-    const discountCode = typeof body.discountCode === "string" ? body.discountCode.trim() : "";
     const payload = {
-      arrivalDate,
-      departureDate,
-      apartments,
+      arrivalDate: aIso,
+      departureDate: dIso,
+      apartments: Array.isArray(apartments) ? apartments : [],
       customerId: Number(SMOOBU_CUSTOMER_ID),
     };
     if (typeof guests === "number") payload.guests = guests;
-    if (discountCode) payload.discountCode = discountCode;
+    if (typeof discountCode === "string" && discountCode.trim()) payload.discountCode = discountCode.trim();
 
     const cacheKey = JSON.stringify(payload);
     const cached = availabilityCacheGet(cacheKey);
@@ -501,6 +709,15 @@ app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
 async function computeOfferPayloads(arrivalDate, departureDate, guests) {
+  const aIso = toISODate(arrivalDate);
+  const dIso = toISODate(departureDate);
+  if (!aIso || !dIso) {
+    const err = new Error("Invalid date format");
+    err.status = 400;
+    err.details = { hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026" };
+    throw err;
+  }
+
   const customerIdRaw = process.env.SMOOBU_CUSTOMER_ID;
   if (!customerIdRaw) {
     const err = new Error("SMOOBU_CUSTOMER_ID is not set");
@@ -523,7 +740,8 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
     method: "POST",
-    jsonBody: payload,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 
   const availableApartments = Array.isArray(avail?.availableApartments) ? avail.availableApartments : [];
@@ -574,8 +792,7 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       if (!arrivalDate || !departureDate || !Number.isFinite(guests) || guests <= 0) {
         return res.status(400).json({
           error: "missing_params",
-          hint: "Provide offerToken OR (arrivalDate, departureDate, guests OR adults+children, apartmentId/apartmentName optional).",
-          received: { arrivalDate: rawArrival ?? null, departureDate: rawDeparture ?? null, guests: body.guests ?? null, apartmentId: body.apartmentId ?? null, apartmentName: body.apartmentName ?? null },
+          hint: "Provide offerToken OR (arrivalDate, departureDate, guests OR adults+children, apartmentId optional).",
         });
       }
 
@@ -616,9 +833,9 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       });
     }
 
-    const adults = parseGuests(body.adults ?? offer.guests) ?? (parseGuests(offer.guests) ?? 1);
-    const children = parseNonNegInt(body.children ?? 0, 0);
-    const guests = parseGuests(body.guests ?? (adults + children) ?? offer.guests) ?? (adults + children);
+    const adults = Number(body.adults ?? offer.guests);
+    const children = Number(body.children ?? 0);
+    const guests = Number(body.guests ?? (adults + children) ?? offer.guests);
 
     // --- Build Smoobu reservation payload ---
     const reservationPayload = {
@@ -648,10 +865,10 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     };
 
     // Create booking in Smoobu
-    const result = await smoobuFetch("/api/reservations", {
+    const result = await smoobuFetch("/reservations", {
       method: "POST",
-      jsonBody: reservationPayload,
-      timeoutMs: 20000,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reservationPayload),
     });
 
     // Some Smoobu responses return {id:...} others {reservationId:...}
@@ -697,6 +914,12 @@ async function conciergeChatHandler(req, res) {
 
     const page = (typeof body.page === "string" && body.page) || "start";
 
+    // Optional: stable per-widget session id (frontend can store it in localStorage)
+    const sessionId =
+      (typeof body.sessionId === "string" && body.sessionId) ||
+      (typeof body.session === "string" && body.session) ||
+      "";
+
     // Normalize user message
     const userMessage =
       (typeof body.message === "string" && body.message) ||
@@ -704,6 +927,10 @@ async function conciergeChatHandler(req, res) {
       "";
 
     let messages = Array.isArray(body.messages) ? body.messages : null;
+
+    // Optional conversation history from the widget.
+    // Expected: [{role:"user"|"assistant", content:"..."}, ...]
+    const history = Array.isArray(body.history) ? body.history : null;
 
     if (!messages) {
       const sys = [
@@ -714,14 +941,50 @@ async function conciergeChatHandler(req, res) {
         `Seite: ${page}. Locale: ${locale}.`,
       ].join(" ");
 
-      messages = [
-        { role: "system", content: sys },
-        { role: "user", content: userMessage || "Hallo" },
-      ];
+      const safeHist = (history || [])
+        .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+        .slice(-12);
+
+      messages = [{ role: "system", content: sys }, ...safeHist, { role: "user", content: userMessage || "Hallo" }];
     }
 
     // Quick weather path (keine OpenAI-Kosten, wenn eindeutig)
     const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content || "";
+
+    // If user replies with a number after a list (e.g. "2"), resolve it from session memory.
+    const sel = parseListSelection(lastUser);
+    if (sel && sessionId) {
+      const sess = getSession(sessionId);
+      const list = sess?.lastList || [];
+      const it = list[sel - 1];
+      if (it) {
+        const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
+        const replyLines = [
+          `**${it.name}${dist}**`,
+          it.summary ? it.summary : "",
+          "\nSag mir, was du wissen willst: Öffnungszeiten, Anfahrt, Preise, Schwierigkeit, oder Alternative in der Nähe.",
+        ].filter(Boolean);
+        const links = [];
+        if (it.url) links.push({ label: it.name, url: it.url });
+        if (it.sourceUrl && it.sourceUrl !== it.url) links.push({ label: `${it.name} (Quelle)`, url: it.sourceUrl });
+        return res.json({ reply: replyLines.join("\n"), links, source: "knowledge" });
+      }
+    }
+
+    // Knowledge-first (NO hallucinations): lists/recommendations come from knowledge/verified.json
+    // The widget can optionally send { radiusKm: 35 }.
+    const radiusKmRaw = body.radiusKm ?? body.radius ?? body.distanceKm ?? body.distance;
+    const radiusKm = Number.isFinite(Number(radiusKmRaw)) ? Number(radiusKmRaw) : 35;
+    const cat = detectCategory(lastUser);
+    if (cat) {
+      const k = loadKnowledge();
+      const mustAnswerFromKnowledge = isListIntent(lastUser) || cat === "events" || cat === "medical" || cat === "alpenlodge";
+      if (mustAnswerFromKnowledge) {
+        const r = buildCategoryReply(cat, k, radiusKm, sessionId);
+        if (r?.reply) return res.json({ reply: r.reply, links: r.links || [], source: "knowledge" });
+      }
+    }
+
     if (isWeatherQuestion(lastUser)) {
       try {
         const w = await getWeatherTomorrow();
@@ -731,40 +994,47 @@ async function conciergeChatHandler(req, res) {
       }
     }
 
-    // OpenAI
-    const modelPrimary = process.env.OPENAI_MODEL || "gpt-5.2";
-    const modelFallback = process.env.OPENAI_MODEL_FALLBACK || "gpt-4.1-mini";
-    const instructions = messages.find(m => m.role === "system")?.content || "";
+    // OpenAI (free text questions)
+    // Defaults per requirement: high-end model with cheap fallback.
+    const model = process.env.OPENAI_MODEL || "gpt-5.2";
+    const fallbackModel = process.env.OPENAI_MODEL_FALLBACK || "gpt-4.1-mini";
+
+    // Harden system instructions: never invent recommendations.
+    const baseSys = messages.find(m => m.role === "system")?.content || "";
+    const hardRules = [
+      "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
+      "Wenn du etwas nicht sicher weißt, verweise auf offizielle Verzeichnisse/Quellen und gib Links.",
+      "Wenn der User nach Empfehlungen/Listen fragt, bitte nach Kriterien (Budget, Küche, Level, Saison) statt zu raten.",
+    ].join(" ");
+    const instructions = `${hardRules} ${baseSys}`.trim();
     const input = messages
       .filter(m => m.role !== "system")
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n");
 
-let response;
-try {
-  response = await openai.responses.create({
-    model: modelPrimary,
-    instructions,
-    input,
-    temperature: 0.4,
-  });
-} catch (e) {
-  // Fallback: try a smaller/cheaper model if the primary fails (rate limits, model unavailable, etc.)
-  const msg = e?.message || "";
-  console.error("❌ OpenAI primary model failed:", modelPrimary, msg);
-  if (modelFallback && modelFallback !== modelPrimary) {
-    response = await openai.responses.create({
-      model: modelFallback,
-      instructions,
-      input,
-      temperature: 0.4,
-    });
-  } else {
-    throw e;
-  }
-}
+    let response;
+    try {
+      response = await openai.responses.create({
+        model,
+        instructions,
+        input,
+        temperature: 0.4,
+      });
+    } catch (e) {
+      // automatic fallback
+      if (fallbackModel && fallbackModel !== model) {
+        response = await openai.responses.create({
+          model: fallbackModel,
+          instructions,
+          input,
+          temperature: 0.4,
+        });
+      } else {
+        throw e;
+      }
+    }
 
-res.json({ reply: response?.output_text || "" });
+    res.json({ reply: response?.output_text || "" });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
     const status = err?.status || err?.response?.status;
