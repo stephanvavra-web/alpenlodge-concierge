@@ -65,7 +65,9 @@
   };
 
   const renderMsgHtml = (text) => {
-    const safe = escapeHtml(text).replace(/\n/g, "<br>");
+    // Escape first, then allow a tiny subset of markdown (**bold**) for readability.
+    let safe = escapeHtml(text).replace(/\n/g, "<br>");
+    safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
     return linkify(safe);
   };
 
@@ -84,7 +86,9 @@
       if (!x) return null;
       if (typeof x === "string") return { label: x, url: x };
       if (typeof x === "object" && (x.url || x.href)) {
-        return { label: x.label || x.title || x.url || x.href, url: x.url || x.href };
+        const u = x.url || x.href;
+        if (!/^https?:\/\//i.test(String(u || "").trim())) return null;
+        return { label: x.label || x.title || u, url: u };
       }
       return null;
     };
@@ -101,7 +105,7 @@
       })
       .join("");
 
-    return `<div class="al-links"><div class="al-links-title">${esc(title || "Quellen")}</div><ul>${items}</ul></div>`;
+    return `<div class="al-links"><div class="al-links-title">${esc(title || "Infos & Links")}</div><ul>${items}</ul></div>`;
   };
 
   // ----- remove legacy widgets to avoid duplicates
@@ -342,8 +346,8 @@ body.al-no-scroll{ overflow:hidden; }
     killLegacy();
     injectCSS();
 
-    // Wait until DOM is really ready (prevents fallback)
-    const btn = mountButton();
+    // Desktop: mount button near logo. Mobile: do NOT touch header layout (Samsung/iOS safer) -> floating button.
+    const btn = (window.innerWidth > 768) ? mountButton() : null;
 
     // If header not found: fallback button bottom-right (but still works)
     let finalBtn = btn;
@@ -368,15 +372,19 @@ body.al-no-scroll{ overflow:hidden; }
     const lang = detectLang();
     const greet = lang === "en" ? CFG.greetEN : CFG.greetDE;
 
-    const push = (text, who) => {
-      const html = renderMsgHtml(text);
-      const m = el("div", `msg ${who}`, html);
+    const push = (text, who, opts = {}) => {
+      const isHtml = Boolean(opts.isHtml);
+      const m = el("div", `msg ${who}`);
+      m.innerHTML = isHtml ? String(text || "") : renderMsgHtml(text);
       body.appendChild(m);
       body.scrollTop = body.scrollHeight;
 
-      const role = who === "bot" ? "assistant" : "user";
-      history.push({ role, content: String(text || "") });
-      if (history.length > 20) history.splice(0, history.length - 20);
+      // Only store plain-text messages in history (avoid injecting HTML blocks)
+      if (!isHtml) {
+        const role = who === "bot" ? "assistant" : "user";
+        history.push({ role, content: String(text || "") });
+        if (history.length > 20) history.splice(0, history.length - 20);
+      }
     };
 
     push(greet, "bot");
@@ -476,8 +484,8 @@ body.al-no-scroll{ overflow:hidden; }
 
           // Show sources as a separate block (clickable), if provided.
           const links = data && data.links;
-          const linksHtml = renderLinks(links, lang === "en" ? "Sources" : "Quellen");
-          if (linksHtml) push(linksHtml, "bot");
+          const linksHtml = renderLinks(links, lang === "en" ? "Info & Links" : "Infos & Links");
+          if (linksHtml) push(linksHtml, "bot", { isHtml: true });
           return;
         }
 

@@ -242,6 +242,10 @@ function parseListSelection(text) {
   return n;
 }
 
+function isHttpUrl(u) {
+  return /^https?:\/\//i.test(String(u || "").trim());
+}
+
 function mdLink(label, url) {
   // The frontend renders clickable sources separately via `links`.
   // Keep the reply text clean and non-hallucinated.
@@ -314,11 +318,8 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
     items.forEach((it, idx) => {
       const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
       const note = it.summary ? ` — ${it.summary}` : "";
-      const url = it.url || it.sourceUrl || "";
-      const src = (it.sourceUrl && it.sourceUrl !== it.url) ? it.sourceUrl : "";
-      const linkPart = url ? ` — ${url}` : "";
-      const srcPart = src ? ` (Quelle: ${src})` : "";
-      lines.push(`${idx + 1}) ${it.name}${dist}${note}${linkPart}${srcPart}`);
+      const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? " — intern bestätigt" : "";
+      lines.push(`${idx + 1}) ${it.name}${dist}${note}${internal}`);
     });
   }
 
@@ -329,13 +330,21 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
 
 
   const links = [];
+  const seen = new Set();
+  const pushLink = (label, url) => {
+    if (!url || !isHttpUrl(url)) return;
+    const key = `${label}@@${url}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    links.push({ label, url });
+  };
 
   for (const it of items) {
-    if (it.url) links.push({ label: it.name, url: it.url });
-    if (it.sourceUrl && it.sourceUrl !== it.url) links.push({ label: `${it.name} (Quelle)`, url: it.sourceUrl });
+    if (it.url) pushLink(it.name, it.url);
+    if (it.sourceUrl && it.sourceUrl !== it.url) pushLink(`${it.name} (Quelle)`, it.sourceUrl);
   }
   for (const d of extraDirs) {
-    if (d?.url) links.push({ label: d.label, url: d.url });
+    if (d?.url) pushLink(d.label, d.url);
   }
 
   return { reply: lines.join("\n"), links };
