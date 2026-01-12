@@ -41,19 +41,16 @@ function loadKnowledge() {
     if (_knowledgeCache.value && _knowledgeCache.mtimeMs === st.mtimeMs) return _knowledgeCache.value;
     const raw = fs.readFileSync(p, "utf8");
     const json = JSON.parse(raw);
-    const normalized = normalizeKnowledge(json, p);
-    _knowledgeCache = { ts: Date.now(), mtimeMs: st.mtimeMs, value: normalized };
-    return normalized;
+    _knowledgeCache = { ts: Date.now(), mtimeMs: st.mtimeMs, value: json };
+    return json;
   } catch (e) {
     return null;
   }
 }
-
-
-// --- Knowledge normalization (supports multiple schemas) ---
-// We accept either:
-// 1) { categories: {ski:[...], ...}, directories:[...] }   (preferred)
-// 2) { items:[{type,...}], sources:{...}, alpenlodge:{center:{lat,lon}, default_radius_km} }  (legacy/one-file)
+// Normalize knowledge formats.
+// Supports either:
+// A) { categories: { ski: [...], restaurants: [...], ... }, directories: [...] }
+// B) { items: [...], sources: {...}, alpenlodge:{center:{lat,lon}}, meta:{rules:{default_radius_km}} }
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -65,102 +62,85 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function normalizeKnowledge(k, filePath = "") {
-  if (!k || typeof k !== "object") return null;
-
-  // If already in preferred schema, keep it.
-  if (k.categories && typeof k.categories === "object") {
-    if (!Array.isArray(k.directories)) k.directories = [];
-    if (!k.meta) k.meta = {};
-    k.meta._normalized = true;
-    k.meta._file = filePath;
-    return k;
+function normalizeKnowledge(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  // Already in expected shape
+  if (raw.categories && typeof raw.categories === "object") {
+    return {
+      categories: raw.categories,
+      directories: Array.isArray(raw.directories) ? raw.directories : [],
+      alpenlodge: raw.alpenlodge || null,
+      meta: raw.meta || {},
+    };
   }
 
-  const out = { meta: { _normalized: true, _file: filePath }, categories: {}, directories: [] };
+  const out = { categories: {}, directories: [], alpenlodge: raw.alpenlodge || null, meta: raw.meta || {} };
 
-  // Center for distance calculations (optional).
-  const center = k?.alpenlodge?.center || k?.center || null;
-  const centerLat = typeof center?.lat === "number" ? center.lat : null;
-  const centerLon = typeof center?.lon === "number" ? center.lon : null;
-
-  // Convert sources -> directories
-  if (k.sources && typeof k.sources === "object") {
-    for (const [key, v] of Object.entries(k.sources)) {
+  // Directories from `sources`
+  if (raw.sources && typeof raw.sources === "object") {
+    for (const [key, v] of Object.entries(raw.sources)) {
       if (!v) continue;
-      if (typeof v === "string") {
-        out.directories.push({ label: key, url: v });
-      } else if (typeof v === "object") {
-        const label = v.label || key;
-        const url = v.url || v.source || v.link;
-        if (url) out.directories.push({ label, url });
-      }
-    }
-  }
-  if (Array.isArray(k.directories)) {
-    for (const d of k.directories) {
-      const label = d?.label || d?.name || "Quelle";
-      const url = d?.url || d?.source || d?.link;
-      if (url) out.directories.push({ label, url });
+      const label = v.label || key;
+      const url = v.url || v.source;
+      if (url) out.directories.push({ label, url, category: key });
     }
   }
 
-  const items = Array.isArray(k.items) ? k.items : [];
-  const catFor = (it) => {
-    const t = (it?.category || it?.type || "").toString().toLowerCase();
-    if (!t) return null;
-    if (t.includes("ski")) return "ski";
-    if (t.includes("rodel") || t.includes("schlitten") || t.includes("sled")) return "rodel";
-    if (t.includes("lake") || t.includes("see") || t.includes("baden")) return "lakes";
-    if (t.includes("wellness") || t.includes("therme") || t.includes("spa") || t.includes("pool") || t.includes("hallenbad")) return "wellness_pools";
-    if (t.includes("arzt") || t.includes("doctor") || t.includes("pharm") || t.includes("apothek") || t.includes("medical")) return "medical";
-    if (t.includes("restaurant") || t.includes("gastro") || t.includes("food") || t.includes("kulinar")) return "restaurants";
-    if (t.includes("event") || t.includes("veranst")) return "events";
-    if (t.includes("wander") || t.includes("hike") || t.includes("trail")) return "hiking";
-    if (t.includes("bayern") || t.includes("schliersee") || t.includes("spitzing") || t.includes("tegern") || t.includes("bayrischzell")) return "bayern_daytrips";
-    if (t.includes("amenity") || t.includes("ausstattung") || t.includes("alpenlodge")) return "alpenlodge";
+  // Items -> categories
+  const items = Array.isArray(raw.items) ? raw.items : [];
+  const center = raw?.alpenlodge?.center || raw?.center || null;
+  const centerLat = Number(center?.lat);
+  const centerLon = Number(center?.lon);
+
+  const push = (cat, it) => {
+    if (!out.categories[cat]) out.categories[cat] = [];
+    out.categories[cat].push(it);
+  };
+
+  const mapTypeToCat = (it) => {
+    const type = String(it?.type || "").toLowerCase();
+    const tags = Array.isArray(it?.tags) ? it.tags.map(t => String(t).toLowerCase()) : [];
+    if (type.includes("ski")) return "ski";
+    if (type === "restaurant" || type === "cafe" || type === "bar") return "restaurants";
+    if (type === "pharmacy" || type === "doctor" || type === "medical") return "medical";
+    if (type === "event" || type.includes("event")) return "events";
+    if (type.includes("wellness") || type.includes("pool") || type.includes("lake")) return "lakes_pools_wellness";
+    if (type.includes("hiking") || type.includes("trail") || type.includes("tour")) return "hiking";
+    if (type.includes("rental") || type.includes("shop")) return "rental";
+    if (tags.includes("bayern") || ["schliersee","spitzingsee","bayrischzell","tegernsee"].some(x=>tags.includes(x))) return "bayern_daytrips";
     return null;
   };
 
-  for (const it of items) {
-    const cat = catFor(it);
-    if (!cat) continue;
-    if (!out.categories[cat]) out.categories[cat] = [];
-    const obj = {
-      name: it.name || it.title || it.label || "Eintrag",
-      summary: it.summary || it.details || it.description || "",
-      url: it.url || it.website || "",
-      sourceUrl: it.source || it.sourceUrl || it.url || "",
-      approx_km_road: (typeof it.approx_km_road === "number") ? it.approx_km_road : undefined,
-      lat: typeof it.lat === "number" ? it.lat : undefined,
-      lon: typeof it.lon === "number" ? it.lon : undefined,
-      type: it.type || it.category || cat,
-      raw: it
-    };
+  for (const it0 of items) {
+    if (!it0 || typeof it0 !== "object") continue;
+    const it = { ...it0 };
 
-    // If we have coordinates and a center, compute an approximate distance if none provided.
-    if (typeof obj.approx_km_road !== "number" && typeof obj.lat === "number" && typeof obj.lon === "number" &&
-        typeof centerLat === "number" && typeof centerLon === "number") {
-      obj.approx_km_road = haversineKm(centerLat, centerLon, obj.lat, obj.lon);
+    // Normalize url fields
+    if (!it.url && it.website) it.url = it.website;
+    if (!it.sourceUrl && it.source) it.sourceUrl = it.source;
+
+    // Compute approx_km_road (air distance fallback) if we can
+    const lat = Number(it.lat);
+    const lon = Number(it.lon);
+    if (Number.isFinite(centerLat) && Number.isFinite(centerLon) && Number.isFinite(lat) && Number.isFinite(lon)) {
+      const km = haversineKm(centerLat, centerLon, lat, lon);
+      if (!Number.isFinite(it.approx_km_road)) it.approx_km_road = Math.round(km * 10) / 10;
     }
 
-    out.categories[cat].push(obj);
+    const cat = mapTypeToCat(it);
+    if (cat) push(cat, it);
   }
 
-  // Also bring over Alpenlodge amenities if present.
-  if (k.alpenlodge && Array.isArray(k.alpenlodge.amenities)) {
-    if (!out.categories.alpenlodge) out.categories.alpenlodge = [];
-    for (const a of k.alpenlodge.amenities) {
-      out.categories.alpenlodge.push({
-        name: a?.name || "Ausstattung",
-        summary: a?.details || a?.summary || "",
-        url: "",
-        sourceUrl: a?.source || "INTERNAL",
-        approx_km_road: 0,
-        type: "amenity",
-        raw: a
-      });
-    }
+  // Alpenlodge amenities -> category "alpenlodge"
+  if (raw.alpenlodge) {
+    const a = raw.alpenlodge;
+    const amen = Array.isArray(a.amenities) ? a.amenities : [];
+    if (amen.length) out.categories.alpenlodge = amen.map(x => ({
+      name: x.name || x.title || "Ausstattung",
+      summary: x.details || x.summary || "",
+      url: x.url || null,
+      sourceUrl: x.source || x.sourceUrl || null
+    }));
   }
 
   return out;
@@ -269,7 +249,8 @@ function mdLink(label, url) {
   return `${label} ↗`;
 }
 
-function buildCategoryReply(cat, k, radiusKm = 35, sessionId = "") {
+function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
+  const k = normalizeKnowledge(kRaw);
   if (!k || !k.categories) return null;
   const cats = k.categories;
   const dirs = Array.isArray(k.directories) ? k.directories : [];
@@ -322,7 +303,8 @@ function buildCategoryReply(cat, k, radiusKm = 35, sessionId = "") {
   }
 
   if (!items.length) {
-    lines.push("Dazu habe ich aktuell keine verifizierten Einzeleinträge in meiner Liste.");
+    // No item-level entries available: provide official directories as sources.
+    lines.push("Hier sind die offiziellen Quellen (immer aktuell):");
   } else {
     // Remember the last list for follow-up answers like "2".
     setLastList(sessionId, items);
@@ -338,7 +320,18 @@ function buildCategoryReply(cat, k, radiusKm = 35, sessionId = "") {
     for (const d of extraDirs) lines.push(`- ${mdLink(d.label, d.url)}`);
   }
 
+
+  // Always attach official sources (directories) in the reply.
+  if (extraDirs.length) {
+    lines.push("");
+    lines.push("**Quellen (offiziell):**");
+    for (const d of extraDirs) {
+      if (d?.label && d?.url) lines.push(`- ${mdLink(d.label, d.url)}`);
+    }
+  }
+
   const links = [];
+
   for (const it of items) {
     if (it.url) links.push({ label: it.name, url: it.url });
     if (it.sourceUrl && it.sourceUrl !== it.url) links.push({ label: `${it.name} (Quelle)`, url: it.sourceUrl });
@@ -578,22 +571,32 @@ app.get("/api/debug/vars", (req, res) => {
   });
 });
 
-// Knowledge debug (no secrets). Shows whether verified.json was loaded and how many items exist per category.
+// Knowledge visibility (no PII). Helps verify that lists are actually loaded on Render.
 app.get("/api/debug/knowledge", (req, res) => {
-  const k = loadKnowledge();
-  if (!k) return res.status(500).json({ ok: false, error: "knowledge_not_loaded", knowledgeFile: KNOWLEDGE_FILE });
-  const categories = k.categories || {};
+  const raw = loadKnowledge();
+  const k = normalizeKnowledge(raw);
+  if (!k) return res.status(500).json({ ok: false, error: "knowledge_not_loaded", path: KNOWLEDGE_FILE });
   const counts = {};
-  for (const [cat, arr] of Object.entries(categories)) counts[cat] = Array.isArray(arr) ? arr.length : 0;
+  for (const [cat, arr] of Object.entries(k.categories || {})) counts[cat] = Array.isArray(arr) ? arr.length : 0;
   res.json({
     ok: true,
-    knowledgeFile: KNOWLEDGE_FILE,
-    normalized: Boolean(k?.meta?._normalized),
-    directoriesCount: Array.isArray(k.directories) ? k.directories.length : 0,
-    categoryCounts: counts,
-    sample: Object.fromEntries(
-      Object.entries(categories).map(([cat, arr]) => [cat, Array.isArray(arr) ? arr.slice(0, 2) : []])
-    ),
+    path: KNOWLEDGE_FILE,
+    categories: counts,
+    directories: Array.isArray(k.directories) ? k.directories.length : 0,
+    hasAlpenlodge: Boolean(k.alpenlodge),
+  });
+});
+
+// Version/debug info (helps confirm Render runs the latest deploy)
+app.get("/api/debug/version", (req, res) => {
+  res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    node: process.version,
+    render: {
+      serviceId: process.env.RENDER_SERVICE_ID || null,
+      gitCommit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
+    },
   });
 });
 
