@@ -1,6 +1,6 @@
 {
   "meta": {
-    "version": "2026-01-11-v8",
+    "version": "2026-01-13-v9",
     "language": "de",
     "rules": {
       "default_radius_km": 35,
@@ -8,7 +8,8 @@
       "always_show_source": true,
       "no_old_brand_name": true,
       "when_uncertain": "Nicht behaupten – stattdessen passende offizielle Quelle/Verzeichnis verlinken."
-    }
+    },
+    "generated_at": "2026-01-13T11:01:26+00:00"
   },
   "alpenlodge": {
     "name": "Alpenlodge",
@@ -58,6 +59,769 @@
         "name": "E‑Auto‑Ladestation",
         "details": "vor Ort (je nach Verfügbarkeit)",
         "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Solarium",
+        "details": "Solarium vor Ort.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "service",
+        "name": "Brötchenservice",
+        "details": "Brötchenservice verfügbar.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "policy",
+        "name": "Hunde erlaubt",
+        "details": "Hunde sind erlaubt (Gebühr siehe Hausinfos).",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "guest_card",
+        "name": "KufsteinerlandCard",
+        "details": "KufsteinerlandCard für Gäste (Details siehe Hausinfos).",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "highlight",
+        "name": "Naturbadesee Landl",
+        "details": "Naturbadesee Landl ca. 450 m von der Alpenlodge.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Hund",
+        "details": "Hund: 15 € pro Nacht.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Kurtaxe",
+        "details": "Kurtaxe: 3,50 € pro Person/Nacht ab 15 Jahren.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Zusatzperson",
+        "details": "Zusatzperson: ca. 24 € pro Nacht.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "info",
+        "name": "Babybett",
+        "details": "Babybett: gratis.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "info",
+        "name": "AGB",
+        "details": "AGB-Basis: österreichische Hotel‑AGB.",
+        "source": "INTERNAL:project-knowledge"
+      }
+    ]
+  },
+  "sources": {
+    "restaurants": {
+      "label": "Gastronomie-Verzeichnisse (Kufsteinerland / Schliersee / Bayrischzell)",
+      "source": "https://www.kufstein.com/de/kulinarik/gastronomie.html | https://www.schliersee.de/sommer/ihre-gastgeber/gastronomie/ | https://www.bayrischzell.de/essen-trinken"
+    },
+    "ski_areas": {
+      "label": "Skigebiete (offiziell)",
+      "source": "https://www.skiwelt.at/ | https://zahmerkaiser.com/ | https://www.hocheck.com/ | https://www.sudelfeld.de/ | https://www.alpenbahnen-spitzingsee.de/ | https://www.schneeberglifte.at/"
+    },
+    "rental": {
+      "label": "Skischulen & Verleih (offiziell)",
+      "source": "https://www.alpenbahnen-spitzingsee.de/skischulen-verleih/ | https://www.sudelfeld.de/skischulen-und-skiverleih/"
+    },
+    "lakes_pools_wellness": {
+      "label": "Badeseen / Hallenbad / Wellness",
+      "source": "https://www.kufstein.com/de/aktivitaeten/sommer/badeurlaub.html | https://www.innsola.de/ | https://www.das-sieben.com/ | https://www.monte-mare.de/schliersee/"
+    },
+    "events": {
+      "label": "Events & Sportevents (offiziell)",
+      "source": "https://www.kufstein.com/de/kultur/events-tirol/veranstaltungskalender.html | https://www.kufstein.com/de/kultur/events-tirol/sport-events.html | https://www.alpenbahnen-spitzingsee.de/events/ | https://www.kitzbuehel.com/de/events/"
+    },
+    "doctors_pharmacies": {
+      "label": "Ärzte/Apotheken (offizielle Suchen)",
+      "source": "https://www.1450.at/ | https://www.aektirol.at/arztsuche | https://www.apothekerkammer.at/apothekensuche | https://www.aponet.de/apothekensuche"
+    },
+    "hiking": {
+      "label": "Tourenportale & Wandern (offiziell)",
+      "source": "https://maps.kufstein.com/ | https://servus-schliersee.de/wandern/ | https://maps.tegernsee-schliersee.de/ | https://www.alpenverein.de/files/broschueren/bergerlebnis-spitzing_19322.pdf"
+    }
+  },
+  "items": [
+    {
+      "type": "event",
+      "name": "56. Ebbser Koasamarsch (13.06.2026)",
+      "category": "sport_event",
+      "location_name": "Ebbs (Tirol)",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Wander- & Trailrunning-Event; Termin laut Veranstalterseite.",
+      "source": "https://www.koasamarsch.at/de/koasamarsch-ebbs-2025-55-jahre.html | https://mapcarta.com/28090808",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "10. Kufsteinerland Radmarathon (23.08.2026)",
+      "category": "sport_event",
+      "location_name": "Kufstein/Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Radmarathon; Termin laut Veranstalterseite.",
+      "source": "https://www.kufsteinerland-radmarathon.at/de/kufsteinerland-radmarathon.html | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Hechtsee X‑Treme (15.08.2026)",
+      "category": "sport_event",
+      "location_name": "Kufstein (Hechtsee)",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Open‑Water‑Schwimmwettbewerb am Hechtsee; Termin laut Veranstalterseite.",
+      "source": "https://tri-x-kufstein.at/unsere-events/schwimmwettbewerb-hechtsee-x-treme/ | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Int. Thiersee Triathlon (Save-the-Date 16.08.2026)",
+      "category": "sport_event",
+      "location_name": "Thiersee (Tirol)",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Triathlon (Sprint & olympisch) – Datum laut Veranstalterseite.",
+      "source": "https://www.thiersee-triathlon.at/ | https://mapcarta.com/17873052",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Sportevents im Kufsteinerland (Übersicht)",
+      "category": "directory",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Sportevent-Übersicht (nutzen, wenn ein konkreter Termin gesucht wird).",
+      "source": "https://www.kufstein.com/de/kultur/events-tirol/sport-events.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "SkiWelt Wilder Kaiser – Brixental",
+      "category": "ski_area",
+      "location_name": "SkiWelt Region",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Großes Skigebiet (offiziell).",
+      "source": "https://www.skiwelt.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Zahmer Kaiser – Walchsee",
+      "category": "ski_area",
+      "location_name": "Walchsee",
+      "lat": 47.651,
+      "lon": 12.318,
+      "details": "Familiäres Skigebiet/Region (offiziell).",
+      "source": "https://zahmerkaiser.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Hocheck Oberaudorf",
+      "category": "ski_area",
+      "location_name": "Oberaudorf (Bayern)",
+      "lat": 47.651,
+      "lon": 12.173,
+      "details": "Ski- & Freizeitgebiet Hocheck (offiziell).",
+      "source": "https://www.hocheck.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Skigebiet Sudelfeld",
+      "category": "ski_area",
+      "location_name": "Bayrischzell/Sudelfeld",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Skigebiet Sudelfeld (offiziell).",
+      "source": "https://www.sudelfeld.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Spitzingsee – Alpenbahnen",
+      "category": "ski_area",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Skigebiet Spitzingsee (offiziell).",
+      "source": "https://www.alpenbahnen-spitzingsee.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Schneeberglifte Thiersee (Mitterland)",
+      "category": "ski_area",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Kleines Skigebiet (offiziell).",
+      "source": "https://www.schneeberglifte.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Skischulen & Verleih Spitzingsee (Übersicht)",
+      "category": "rental",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Offizielle Übersicht zu Skischulen/Verleih am Spitzingsee.",
+      "source": "https://www.alpenbahnen-spitzingsee.de/skischulen-verleih/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Skischulen & Skiverleih Sudelfeld (Übersicht)",
+      "category": "rental",
+      "location_name": "Bayrischzell/Sudelfeld",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Offizielle Übersicht zu Skischulen/Verleih am Sudelfeld.",
+      "source": "https://www.sudelfeld.de/skischulen-und-skiverleih/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Rodeln Hocheck (Info)",
+      "category": "rental",
+      "location_name": "Oberaudorf",
+      "lat": 47.651,
+      "lon": 12.173,
+      "details": "Rodelbahn-Info (inkl. Verleih je nach Saison).",
+      "source": "https://www.hocheck.com/rodeln/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Rodeln Zahmer Kaiser (Info)",
+      "category": "rental",
+      "location_name": "Walchsee",
+      "lat": 47.651,
+      "lon": 12.318,
+      "details": "Rodel-Angebote im Gebiet Zahmer Kaiser.",
+      "source": "https://zahmerkaiser.com/winter/rodeln/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "Thiersee (Ort/See – Überblick)",
+      "category": "lake",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Orts-/Seeseite Thiersee (Kufsteinerland).",
+      "source": "https://www.kufstein.com/de/region/orte/thiersee.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "INNSOLA Hallenbad & Sauna",
+      "category": "pool",
+      "location_name": "Kiefersfelden",
+      "lat": 47.614,
+      "lon": 12.188,
+      "details": "Hallenbad & Sauna (offiziell).",
+      "source": "https://www.innsola.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "DAS SIEBEN – Therme/Wellness",
+      "category": "wellness",
+      "location_name": "Bad Häring",
+      "lat": 47.511,
+      "lon": 12.118,
+      "details": "Wellness/SPA (offiziell).",
+      "source": "https://www.das-sieben.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "Monte Mare Schliersee (Bad & Sauna)",
+      "category": "pool_wellness",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Erlebnisbad & Sauna (offiziell).",
+      "source": "https://www.monte-mare.de/schliersee/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Auracher Löchl (Restaurant)",
+      "category": "restaurant",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Restaurant (Betreiberseite).",
+      "source": "https://www.auracher-loechl.at/de/restaurant/restaurant-kufstein/35-0.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Berghaus Aschenbrenner",
+      "category": "restaurant",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Berggasthaus (Betreiberseite).",
+      "source": "https://www.berghaus-aschenbrenner.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Alpengasthof Schneeberg",
+      "category": "restaurant",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Gasthof/Restaurant (Betreiberseite).",
+      "source": "https://www.gasthof-schneeberg.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Obere Firstalm",
+      "category": "restaurant",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Berggasthof (Betreiberseite).",
+      "source": "https://firstalm.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Gastronomie-Verzeichnis Kufsteinerland (Quelle)",
+      "category": "directory",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielles Verzeichnis – nutzen, wenn man ‚mehr Auswahl‘ braucht.",
+      "source": "https://www.kufstein.com/de/kulinarik/gastronomie.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Gastronomie-Verzeichnis Schliersee (Quelle)",
+      "category": "directory",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Offizielles Verzeichnis – für Schliersee/Spitzing.",
+      "source": "https://www.schliersee.de/sommer/ihre-gastgeber/gastronomie/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Essen & Trinken Bayrischzell (Quelle)",
+      "category": "directory",
+      "location_name": "Bayrischzell",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Offizielle Übersicht Gastronomie Bayrischzell.",
+      "source": "https://www.bayrischzell.de/essen-trinken",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Festung Kufstein",
+      "category": "sight",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Historische Festung mit Museum/Events (offiziell).",
+      "source": "https://www.festung.kufstein.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Hallo Du – FunArena Ebbs",
+      "category": "indoor_outdoor",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Freizeitpark in Ebbs (offiziell).",
+      "source": "https://www.hallodu.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Raritätenzoo Ebbs",
+      "category": "zoo",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Tierpark (offiziell).",
+      "source": "https://www.raritaetenzoo-ebbs.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Fohlenhof Ebbs (Haflingerzentrum)",
+      "category": "horses",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Haflingerzentrum (offiziell).",
+      "source": "https://www.haflinger-tirol.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "SLYRS Destillerie",
+      "category": "visit",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Besichtigung/Shop je nach Angebot (offiziell).",
+      "source": "https://slyrs.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Tourenportal Kufsteinerland (Karte/Filter)",
+      "category": "tour_portal",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Interaktives Tourenportal (GPX, Filter).",
+      "source": "https://maps.kufstein.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Sagenweg – Schattbergrunde Thiersee",
+      "category": "trail",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Themenweg (offizielle Tourbeschreibung).",
+      "source": "https://www.kufstein.com/de/tours/sagenweg-schattbergrunde-thiersee.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Pendling Circuit (Rundtour)",
+      "category": "trail",
+      "location_name": "Thiersee/Kufstein",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Rundtour (Tourbeschreibung).",
+      "source": "https://www.kufstein.com/en/tours/330-pendling-circuit-1.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Wandern am Schliersee & Spitzingsee (Übersicht)",
+      "category": "trail_overview",
+      "location_name": "Schliersee/Spitzingsee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Übersicht Wandern (Servus Schliersee).",
+      "source": "https://servus-schliersee.de/wandern/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Tourenportal Tegernsee-Schliersee (Karte/Filter)",
+      "category": "tour_portal",
+      "location_name": "Tegernsee-Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Interaktives Portal für Touren & POIs.",
+      "source": "https://maps.tegernsee-schliersee.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Alpenverein PDF: Bergerlebnis Spitzingsee",
+      "category": "pdf",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "PDF mit Tourenvorschlägen (Brecherspitz/Rotwand etc.).",
+      "source": "https://www.alpenverein.de/files/broschueren/bergerlebnis-spitzing_19322.pdf",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Gesundheitsberatung Österreich (1450)",
+      "category": "healthline",
+      "location_name": "Österreich",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Offizielle Infos zur Gesundheitsnummer 1450.",
+      "source": "https://www.1450.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Arztsuche Ärztekammer Tirol (Quelle)",
+      "category": "directory",
+      "location_name": "Tirol",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Arztsuche.",
+      "source": "https://www.aektirol.at/arztsuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Apothekensuche Österreichische Apothekerkammer (Quelle)",
+      "category": "directory",
+      "location_name": "Österreich",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Apothekensuche (inkl. Notdienst je nach Filter).",
+      "source": "https://www.apothekerkammer.at/apothekensuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Apothekensuche/Notdienst Deutschland (Quelle)",
+      "category": "directory",
+      "location_name": "Deutschland",
+      "lat": 47.614,
+      "lon": 12.188,
+      "details": "Apothekensuche Deutschland (inkl. Notdienst).",
+      "source": "https://www.aponet.de/apothekensuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Kitzbühel Events (Kalender)",
+      "category": "directory",
+      "location_name": "Kitzbühel (weiterer Umkreis)",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizieller Eventkalender – nur nutzen, wenn explizit Kitzbühel gewünscht.",
+      "source": "https://www.kitzbuehel.com/de/events/ | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "extended"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-13-v9",
+    "language": "de",
+    "rules": {
+      "default_radius_km": 35,
+      "never_invent": true,
+      "always_show_source": true,
+      "no_old_brand_name": true,
+      "when_uncertain": "Nicht behaupten – stattdessen passende offizielle Quelle/Verzeichnis verlinken."
+    },
+    "generated_at": "2026-01-13T11:01:26+00:00"
+  },
+  "alpenlodge": {
+    "name": "Alpenlodge",
+    "center": {
+      "lat": 47.589,
+      "lon": 12.03543
+    },
+    "amenities": [
+      {
+        "type": "amenity",
+        "name": "Fitnessraum",
+        "details": "24/7 frei benutzbar (kostenfrei)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Infrarot-Sauna",
+        "details": "24/7 frei benutzbar (kostenfrei)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Waschmaschinen & Trockner",
+        "details": "24/7 verfügbar",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Indoor-Spielzimmer",
+        "details": "für Kinder (wetterunabhängig)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Außenspielplatz",
+        "details": "direkt am Haus/nah am Haus",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Snackautomat",
+        "details": "24/7 verfügbar",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "E‑Auto‑Ladestation",
+        "details": "vor Ort (je nach Verfügbarkeit)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Solarium",
+        "details": "Solarium vor Ort.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "service",
+        "name": "Brötchenservice",
+        "details": "Brötchenservice verfügbar.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "policy",
+        "name": "Hunde erlaubt",
+        "details": "Hunde sind erlaubt (Gebühr siehe Hausinfos).",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "guest_card",
+        "name": "KufsteinerlandCard",
+        "details": "KufsteinerlandCard für Gäste (Details siehe Hausinfos).",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "highlight",
+        "name": "Naturbadesee Landl",
+        "details": "Naturbadesee Landl ca. 450 m von der Alpenlodge.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Hund",
+        "details": "Hund: 15 € pro Nacht.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Kurtaxe",
+        "details": "Kurtaxe: 3,50 € pro Person/Nacht ab 15 Jahren.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Zusatzperson",
+        "details": "Zusatzperson: ca. 24 € pro Nacht.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "info",
+        "name": "Babybett",
+        "details": "Babybett: gratis.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "info",
+        "name": "AGB",
+        "details": "AGB-Basis: österreichische Hotel‑AGB.",
+        "source": "INTERNAL:project-knowledge"
       }
     ]
   },

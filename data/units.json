@@ -1,202 +1,350 @@
 {
   "units": [
     {
-      "unit_id": 6,
-      "name": "Enzian",
-      "category": "Apartment",
-      "m2": 35.0,
-      "max_persons": 2,
-      "smoobu_id": 1590490,
-      "details_url": "/pages/units/enzian.html",
-      "book_url": "/buchen/?apartmentId=1590490",
-      "slug": "enzian"
-    },
-    {
-      "unit_id": 9,
-      "name": "Bergnest",
-      "category": "Apartment",
-      "m2": 21.0,
-      "max_persons": 2,
-      "smoobu_id": 1590499,
-      "details_url": "/pages/units/bergnest.html",
-      "book_url": "/buchen/?apartmentId=1590499",
-      "slug": "bergnest"
-    },
-    {
-      "unit_id": 10,
-      "name": "Bergblick",
-      "category": "Apartment",
-      "m2": 99.0,
-      "max_persons": 2,
-      "smoobu_id": 1590502,
-      "details_url": "/pages/units/bergblick.html",
-      "book_url": "/buchen/?apartmentId=1590502",
-      "slug": "bergblick"
-    },
-    {
-      "unit_id": 15,
-      "name": "Alpenlicht",
-      "category": "Apartment",
-      "m2": 38.0,
-      "max_persons": 2,
-      "smoobu_id": 1590517,
-      "details_url": "/pages/units/alpenlicht.html",
-      "book_url": "/buchen/?apartmentId=1590517",
-      "slug": "alpenlicht"
-    },
-    {
-      "unit_id": 18,
-      "name": "Alpennest",
-      "category": "Apartment",
-      "m2": 22.0,
-      "max_persons": 2,
-      "smoobu_id": 1590526,
-      "details_url": "/pages/units/alpennest.html",
-      "book_url": "/buchen/?apartmentId=1590526",
-      "slug": "alpennest"
-    },
-    {
-      "unit_id": 19,
-      "name": "Silberdistel",
-      "category": "Apartment",
-      "m2": 22.0,
-      "max_persons": 2,
-      "smoobu_id": 1590529,
-      "details_url": "/pages/units/silberdistel.html",
-      "book_url": "/buchen/?apartmentId=1590529",
-      "slug": "silberdistel"
-    },
-    {
-      "unit_id": 2,
-      "name": "Alpenpause",
-      "category": "Suite",
-      "m2": 64.0,
-      "max_persons": 4,
-      "smoobu_id": 1590379,
-      "details_url": "/pages/units/alpenpause.html",
-      "book_url": "/buchen/?apartmentId=1590379",
-      "slug": "alpenpause"
-    },
-    {
-      "unit_id": 3,
-      "name": "Bergherz",
-      "category": "Suite",
-      "m2": 64.0,
-      "max_persons": 4,
-      "smoobu_id": 1590481,
-      "details_url": "/pages/units/bergherz.html",
-      "book_url": "/buchen/?apartmentId=1590481",
-      "slug": "bergherz"
-    },
-    {
-      "unit_id": 7,
-      "name": "Alpenblick",
-      "category": "Suite",
-      "m2": 65.0,
-      "max_persons": 4,
-      "smoobu_id": 1590493,
-      "details_url": "/pages/units/alpenblick.html",
-      "book_url": "/buchen/?apartmentId=1590493",
-      "slug": "alpenblick"
-    },
-    {
-      "unit_id": 11,
-      "name": "Bergluft",
-      "category": "Suite",
-      "m2": 63.0,
-      "max_persons": 4,
-      "smoobu_id": 1590505,
-      "details_url": "/pages/units/bergluft.html",
-      "book_url": "/buchen/?apartmentId=1590505",
-      "slug": "bergluft"
-    },
-    {
-      "unit_id": 12,
-      "name": "Bergzeit",
-      "category": "Suite",
-      "m2": 64.0,
-      "max_persons": 4,
-      "smoobu_id": 1590508,
-      "details_url": "/pages/units/bergzeit.html",
-      "book_url": "/buchen/?apartmentId=1590508",
-      "slug": "bergzeit"
-    },
-    {
-      "unit_id": 13,
-      "name": "Alpenbach",
-      "category": "Suite",
-      "m2": 58.0,
-      "max_persons": 3,
-      "smoobu_id": 1590511,
-      "details_url": "/pages/units/alpenbach.html",
-      "book_url": "/buchen/?apartmentId=1590511",
-      "slug": "alpenbach"
-    },
-    {
-      "unit_id": 14,
-      "name": "Alpenruhe",
-      "category": "Suite",
-      "m2": 55.0,
-      "max_persons": 3,
-      "smoobu_id": 1590514,
-      "details_url": "/pages/units/alpenruhe.html",
-      "book_url": "/buchen/?apartmentId=1590514",
-      "slug": "alpenruhe"
-    },
-    {
-      "unit_id": 1,
-      "name": "Edelweiß",
-      "category": "Premium",
-      "m2": 99.0,
-      "max_persons": 6,
-      "smoobu_id": 2275911,
-      "details_url": "/pages/units/edelweiss.html",
-      "book_url": "/buchen/?apartmentId=2275911",
-      "slug": "edelweiss"
-    },
-    {
-      "unit_id": 5,
+      "smoobu_id": 1590487,
       "name": "Alpenglühen",
       "category": "Premium",
-      "m2": 55.0,
-      "max_persons": 3,
-      "smoobu_id": 1590487,
       "details_url": "/pages/units/alpengluehen.html",
       "book_url": "/buchen/?apartmentId=1590487",
-      "slug": "alpengluehen"
+      "max_persons": 3,
+      "m2": 55.0
     },
     {
-      "unit_id": 8,
+      "smoobu_id": 1590496,
       "name": "Alpenrose",
       "category": "Premium",
-      "m2": 140.0,
-      "max_persons": 6,
-      "smoobu_id": 1590496,
       "details_url": "/pages/units/alpenrose.html",
       "book_url": "/buchen/?apartmentId=1590496",
-      "slug": "alpenrose"
+      "max_persons": 6,
+      "m2": 140.0
     },
     {
-      "unit_id": 16,
+      "smoobu_id": 1590520,
       "name": "Bergglück",
       "category": "Premium",
-      "m2": 103.0,
-      "max_persons": 5,
-      "smoobu_id": 1590520,
       "details_url": "/pages/units/bergglueck.html",
       "book_url": "/buchen/?apartmentId=1590520",
-      "slug": "bergglueck"
+      "max_persons": 5,
+      "m2": 103.0
     },
     {
-      "unit_id": 17,
+      "smoobu_id": 2275911,
+      "name": "Edelweiß",
+      "category": "Premium",
+      "details_url": "/pages/units/edelweiss.html",
+      "book_url": "/buchen/?apartmentId=2275911",
+      "max_persons": 6,
+      "m2": 99.0
+    },
+    {
+      "smoobu_id": 1590523,
       "name": "Kaiserblick",
       "category": "Premium",
-      "m2": 111.0,
-      "max_persons": 5,
-      "smoobu_id": 1590523,
       "details_url": "/pages/units/kaiserblick.html",
       "book_url": "/buchen/?apartmentId=1590523",
-      "slug": "kaiserblick"
+      "max_persons": 5,
+      "m2": 111.0
+    },
+    {
+      "smoobu_id": 1590511,
+      "name": "Alpenbach",
+      "category": "Suite",
+      "details_url": "/pages/units/alpenbach.html",
+      "book_url": "/buchen/?apartmentId=1590511",
+      "max_persons": 3,
+      "m2": 58.0
+    },
+    {
+      "smoobu_id": 1590493,
+      "name": "Alpenblick",
+      "category": "Suite",
+      "details_url": "/pages/units/alpenblick.html",
+      "book_url": "/buchen/?apartmentId=1590493",
+      "max_persons": 4,
+      "m2": 65.0
+    },
+    {
+      "smoobu_id": 1590379,
+      "name": "Alpenpause",
+      "category": "Suite",
+      "details_url": "/pages/units/alpenpause.html",
+      "book_url": "/buchen/?apartmentId=1590379",
+      "max_persons": 4,
+      "m2": 64.0
+    },
+    {
+      "smoobu_id": 1590514,
+      "name": "Alpenruhe",
+      "category": "Suite",
+      "details_url": "/pages/units/alpenruhe.html",
+      "book_url": "/buchen/?apartmentId=1590514",
+      "max_persons": 3,
+      "m2": 55.0
+    },
+    {
+      "smoobu_id": 1590481,
+      "name": "Bergherz",
+      "category": "Suite",
+      "details_url": "/pages/units/bergherz.html",
+      "book_url": "/buchen/?apartmentId=1590481",
+      "max_persons": 4,
+      "m2": 64.0
+    },
+    {
+      "smoobu_id": 1590505,
+      "name": "Bergluft",
+      "category": "Suite",
+      "details_url": "/pages/units/bergluft.html",
+      "book_url": "/buchen/?apartmentId=1590505",
+      "max_persons": 4,
+      "m2": 63.0
+    },
+    {
+      "smoobu_id": 1590508,
+      "name": "Bergzeit",
+      "category": "Suite",
+      "details_url": "/pages/units/bergzeit.html",
+      "book_url": "/buchen/?apartmentId=1590508",
+      "max_persons": 4,
+      "m2": 64.0
+    },
+    {
+      "smoobu_id": 1590517,
+      "name": "Alpenlicht",
+      "category": "Apartment",
+      "details_url": "/pages/units/alpenlicht.html",
+      "book_url": "/buchen/?apartmentId=1590517",
+      "max_persons": 2,
+      "m2": 38.0
+    },
+    {
+      "smoobu_id": 1590526,
+      "name": "Alpennest",
+      "category": "Apartment",
+      "details_url": "/pages/units/alpennest.html",
+      "book_url": "/buchen/?apartmentId=1590526",
+      "max_persons": 2,
+      "m2": 22.0
+    },
+    {
+      "smoobu_id": 1590502,
+      "name": "Bergblick",
+      "category": "Apartment",
+      "details_url": "/pages/units/bergblick.html",
+      "book_url": "/buchen/?apartmentId=1590502",
+      "max_persons": 2,
+      "m2": 99.0
+    },
+    {
+      "smoobu_id": 1590499,
+      "name": "Bergnest",
+      "category": "Apartment",
+      "details_url": "/pages/units/bergnest.html",
+      "book_url": "/buchen/?apartmentId=1590499",
+      "max_persons": 2,
+      "m2": 21.0
+    },
+    {
+      "smoobu_id": 1590490,
+      "name": "Enzian",
+      "category": "Apartment",
+      "details_url": "/pages/units/enzian.html",
+      "book_url": "/buchen/?apartmentId=1590490",
+      "max_persons": 2,
+      "m2": 35.0
+    },
+    {
+      "smoobu_id": 1590529,
+      "name": "Silberdistel",
+      "category": "Apartment",
+      "details_url": "/pages/units/silberdistel.html",
+      "book_url": "/buchen/?apartmentId=1590529",
+      "max_persons": 2,
+      "m2": 22.0
+    },
+    {
+      "smoobu_id": 1590484,
+      "name": "Unit 4",
+      "category": "Unknown",
+      "details_url": null,
+      "book_url": "/buchen/?apartmentId=1590484",
+      "max_persons": null,
+      "m2": null
+    }
+  ]
+}
+{
+  "units": [
+    {
+      "smoobu_id": 1590487,
+      "name": "Alpenglühen",
+      "category": "Premium",
+      "details_url": "/pages/units/alpengluehen.html",
+      "book_url": "/buchen/?apartmentId=1590487",
+      "max_persons": 3,
+      "m2": 55.0
+    },
+    {
+      "smoobu_id": 1590496,
+      "name": "Alpenrose",
+      "category": "Premium",
+      "details_url": "/pages/units/alpenrose.html",
+      "book_url": "/buchen/?apartmentId=1590496",
+      "max_persons": 6,
+      "m2": 140.0
+    },
+    {
+      "smoobu_id": 1590520,
+      "name": "Bergglück",
+      "category": "Premium",
+      "details_url": "/pages/units/bergglueck.html",
+      "book_url": "/buchen/?apartmentId=1590520",
+      "max_persons": 5,
+      "m2": 103.0
+    },
+    {
+      "smoobu_id": 2275911,
+      "name": "Edelweiß",
+      "category": "Premium",
+      "details_url": "/pages/units/edelweiss.html",
+      "book_url": "/buchen/?apartmentId=2275911",
+      "max_persons": 6,
+      "m2": 99.0
+    },
+    {
+      "smoobu_id": 1590523,
+      "name": "Kaiserblick",
+      "category": "Premium",
+      "details_url": "/pages/units/kaiserblick.html",
+      "book_url": "/buchen/?apartmentId=1590523",
+      "max_persons": 5,
+      "m2": 111.0
+    },
+    {
+      "smoobu_id": 1590511,
+      "name": "Alpenbach",
+      "category": "Suite",
+      "details_url": "/pages/units/alpenbach.html",
+      "book_url": "/buchen/?apartmentId=1590511",
+      "max_persons": 3,
+      "m2": 58.0
+    },
+    {
+      "smoobu_id": 1590493,
+      "name": "Alpenblick",
+      "category": "Suite",
+      "details_url": "/pages/units/alpenblick.html",
+      "book_url": "/buchen/?apartmentId=1590493",
+      "max_persons": 4,
+      "m2": 65.0
+    },
+    {
+      "smoobu_id": 1590379,
+      "name": "Alpenpause",
+      "category": "Suite",
+      "details_url": "/pages/units/alpenpause.html",
+      "book_url": "/buchen/?apartmentId=1590379",
+      "max_persons": 4,
+      "m2": 64.0
+    },
+    {
+      "smoobu_id": 1590514,
+      "name": "Alpenruhe",
+      "category": "Suite",
+      "details_url": "/pages/units/alpenruhe.html",
+      "book_url": "/buchen/?apartmentId=1590514",
+      "max_persons": 3,
+      "m2": 55.0
+    },
+    {
+      "smoobu_id": 1590481,
+      "name": "Bergherz",
+      "category": "Suite",
+      "details_url": "/pages/units/bergherz.html",
+      "book_url": "/buchen/?apartmentId=1590481",
+      "max_persons": 4,
+      "m2": 64.0
+    },
+    {
+      "smoobu_id": 1590505,
+      "name": "Bergluft",
+      "category": "Suite",
+      "details_url": "/pages/units/bergluft.html",
+      "book_url": "/buchen/?apartmentId=1590505",
+      "max_persons": 4,
+      "m2": 63.0
+    },
+    {
+      "smoobu_id": 1590508,
+      "name": "Bergzeit",
+      "category": "Suite",
+      "details_url": "/pages/units/bergzeit.html",
+      "book_url": "/buchen/?apartmentId=1590508",
+      "max_persons": 4,
+      "m2": 64.0
+    },
+    {
+      "smoobu_id": 1590517,
+      "name": "Alpenlicht",
+      "category": "Apartment",
+      "details_url": "/pages/units/alpenlicht.html",
+      "book_url": "/buchen/?apartmentId=1590517",
+      "max_persons": 2,
+      "m2": 38.0
+    },
+    {
+      "smoobu_id": 1590526,
+      "name": "Alpennest",
+      "category": "Apartment",
+      "details_url": "/pages/units/alpennest.html",
+      "book_url": "/buchen/?apartmentId=1590526",
+      "max_persons": 2,
+      "m2": 22.0
+    },
+    {
+      "smoobu_id": 1590502,
+      "name": "Bergblick",
+      "category": "Apartment",
+      "details_url": "/pages/units/bergblick.html",
+      "book_url": "/buchen/?apartmentId=1590502",
+      "max_persons": 2,
+      "m2": 99.0
+    },
+    {
+      "smoobu_id": 1590499,
+      "name": "Bergnest",
+      "category": "Apartment",
+      "details_url": "/pages/units/bergnest.html",
+      "book_url": "/buchen/?apartmentId=1590499",
+      "max_persons": 2,
+      "m2": 21.0
+    },
+    {
+      "smoobu_id": 1590490,
+      "name": "Enzian",
+      "category": "Apartment",
+      "details_url": "/pages/units/enzian.html",
+      "book_url": "/buchen/?apartmentId=1590490",
+      "max_persons": 2,
+      "m2": 35.0
+    },
+    {
+      "smoobu_id": 1590529,
+      "name": "Silberdistel",
+      "category": "Apartment",
+      "details_url": "/pages/units/silberdistel.html",
+      "book_url": "/buchen/?apartmentId=1590529",
+      "max_persons": 2,
+      "m2": 22.0
+    },
+    {
+      "smoobu_id": 1590484,
+      "name": "Unit 4",
+      "category": "Unknown",
+      "details_url": null,
+      "book_url": "/buchen/?apartmentId=1590484",
+      "max_persons": null,
+      "m2": null
     }
   ]
 }
