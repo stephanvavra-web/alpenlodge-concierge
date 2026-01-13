@@ -100,12 +100,14 @@
       .map(({ label, url }) => {
         const u = esc(url);
         const l = esc(label);
-        const small = (l !== u) ? `<div class="al-links-url">${u}</div>` : "";
+        let host = "";
+        try { host = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+        const small = host ? `<div class="al-links-url">${esc(host)}</div>` : "";
         return `<li><a href="${u}" target="_blank" rel="noopener noreferrer">${l}</a>${small}</li>`;
       })
       .join("");
 
-    return `<div class="al-links"><div class="al-links-title">${esc(title || "Quellen")}</div><ul>${items}</ul></div>`;
+    return `<div class="al-links"><div class="al-links-title">${esc(title || "Infos & Links")}</div><ul>${items}</ul></div>`;
   };
 
   // ----- remove legacy widgets to avoid duplicates
@@ -403,13 +405,20 @@ body.al-no-scroll{ overflow:hidden; }
       ? [
           { type: "link", label: "Book", url: "/buchen/", kind: "primary" },
           { type: "postback", label: "Availability", message: "Check availability" },
-          { type: "postback", label: "Prices", message: "Compare prices" }
+          { type: "postback", label: "Prices", message: "Compare prices" },
+          { type: "postback", label: "Apartments", message: "Apartments availability" },
+          { type: "postback", label: "Suites", message: "Suites availability" },
+          { type: "postback", label: "Premium Suites", message: "Premium Suites availability" }
         ]
       : [
           { type: "link", label: "Buchen", url: "/buchen/", kind: "primary" },
           { type: "postback", label: "Verfügbarkeit", message: "Verfügbarkeit prüfen" },
-          { type: "postback", label: "Preise", message: "Preise vergleichen" }
+          { type: "postback", label: "Preise", message: "Preise vergleichen" },
+          { type: "postback", label: "Apartments", message: "Apartments Verfügbarkeit" },
+          { type: "postback", label: "Suiten", message: "Suiten Verfügbarkeit" },
+          { type: "postback", label: "Premium", message: "Premium Suiten Verfügbarkeit" }
         ];
+
 
     function setQuickActions(actions) {
       if (!quick) return;
@@ -438,16 +447,20 @@ body.al-no-scroll{ overflow:hidden; }
     }
 
 
-    const push = (text, who) => {
-      const html = renderMsgHtml(text);
+    const push = (text, who, opts = {}) => {
+      const { rawHtml = false, storeInHistory = true } = opts || {};
+      const html = rawHtml ? String(text || "") : renderMsgHtml(text);
       const m = el("div", `msg ${who}`, html);
       body.appendChild(m);
       body.scrollTop = body.scrollHeight;
 
-      const role = who === "bot" ? "assistant" : "user";
-      history.push({ role, content: String(text || "") });
-      if (history.length > 20) history.splice(0, history.length - 20);
+      if (storeInHistory) {
+        const role = who === "bot" ? "assistant" : "user";
+        history.push({ role, content: String(text || "") });
+        if (history.length > 20) history.splice(0, history.length - 20);
+      }
     };
+
 
     push(greet, "bot");
     setQuickActions(START_ACTIONS);
@@ -552,7 +565,7 @@ body.al-no-scroll{ overflow:hidden; }
           // Show sources as a separate block (clickable), if provided.
           const links = data && data.links;
           const linksHtml = renderLinks(links, lang === "en" ? "Info & Links" : "Infos & Links");
-          if (linksHtml) push(linksHtml, "bot");
+          if (linksHtml) push(linksHtml, "bot", { rawHtml: true, storeInHistory: false });
           return;
         }
 

@@ -65,3 +65,31 @@
   - Admin Guards (403 ohne Token, optional Admin-Checks)
 - Neu: `README_TESTS.md` (Bedienung)
 - `package.json`: neue Scripts `test:smoke` und `test:smoke:strict`
+
+## v26 — 2026-01-13
+
+**Base-State**
+- concierge-server.mjs sha256: `d5d6425133126d310d821dc9d07026af3e8d79ff9dcb0ea873ecf71968f2deea`
+- al-concierge.js sha256: `b42ac115aa09cc59463f47515413f0be6549d97aa46fb249ce5b5f0bb971d7dd`
+- tests/smoke.mjs sha256: `2477c9ba8f962fcbbbc7ae0fcf4c7ed3bc299b8a2c98d0e650a096285a23905b`
+
+**Changes**
+- **Booking-Chatflow (Smoobu):**
+  - **Personenzahl ist optional**, bis eine Unterkunft ausgewählt wird → der User sieht sofort Angebote & Preise (Basis: 1 Person).
+  - **Flexible Datumseingabe**: ISO, `13.01.26`, `13.01`, `heute/morgen/übermorgen`, Monatsnamen (DE/EN).
+  - Angebotsliste mit **Nummern-Auswahl** ("2") + Quick-Actions für Kategorie/Zurück/Andere Daten.
+- **Knowledge-Antworten:**
+  - Kein "Offizielle Quellen/Verzeichnisse" Text mehr und **keine URLs im reply** → Links ausschließlich über `links[]`.
+  - Link-Labels neutral (kein "(Quelle)") + URLs werden aus `summary` entfernt.
+- **Frontend (Widget):**
+  - `Infos & Links` wird als **echter HTML-Block** gerendert (klickbar) und **nicht** in die Chat-History geschrieben.
+  - Start-Chips erweitert um **Apartments/Suiten/Premium** (schneller Einstieg in Verfügbarkeit/Preise).
+- **Smoke-Tests:**
+  - Booking-Test ohne Gästeangabe.
+  - Guardrails: Fail bei "Offizielle Quellen/Verzeichnisse" oder "(Quelle)" im reply, sowie "Quelle" im links[] label.
+
+**New-State**
+- concierge-server.mjs sha256: `c5061710e52b86d1e2651b168bd767dcf076c6117a9fbf9dc2dd40c96661755a`
+- al-concierge.js sha256: `ef32cd40a4691b44ac6ad10b2be071306240a3b2a62c73f7a1ab7ef90166c216`
+- tests/smoke.mjs sha256: `30fd18eef5196f967a8ee26c309eba33a546ab05f7c42c31acb19ce1219a9548`
+

@@ -125,6 +125,10 @@ function checkLinksArray(title, links) {
       fail(title, `INTERNAL im links[] gefunden: ${JSON.stringify(l)}`);
       continue;
     }
+if (typeof label === "string" && /quelle/i.test(label)) {
+  fail(title, `links[] label enthält 'Quelle' (bitte neutral beschriften): ${JSON.stringify(l)}`);
+  continue;
+}
 
     if (!okUrl(url)) {
       fail(title, `Ungültige URL in links[]: ${JSON.stringify(l)}`);
@@ -160,6 +164,12 @@ function checkReplyClean(title, reply) {
   if (hasInternalMarker(reply)) {
     fail(title, "INTERNAL Marker im reply Text gefunden");
   }
+if (/offizielle\s+quellen|quellen\s*\/\s*verzeichnisse/i.test(String(reply || ""))) {
+  fail(title, "reply enthält 'Offizielle Quellen/Verzeichnisse' — das darf nicht angezeigt werden");
+}
+if (/\(\s*quelle\s*\)/i.test(String(reply || ""))) {
+  fail(title, "reply enthält '(Quelle)' — Links sollen neutral in links[] stehen");
+}
   if (STRICT && containsHttpInText(reply)) {
     fail(title, "reply enthält http(s) URL — laut Regel sollen URLs nur in links[] stehen");
   } else if (!STRICT && containsHttpInText(reply)) {
@@ -271,7 +281,7 @@ async function main() {
 
   // 6) Booking: über Chat (deterministisch) + actions[]
   try {
-    const msg = `Verfügbarkeit ${TEST_ARRIVAL} bis ${TEST_DEPARTURE} für ${TEST_GUESTS} Personen`;
+    const msg = `Verfügbarkeit ${TEST_ARRIVAL} bis ${TEST_DEPARTURE}`;
     const { res, json } = await reqJson("POST", "/api/concierge", {
       body: {
         lang: "de",

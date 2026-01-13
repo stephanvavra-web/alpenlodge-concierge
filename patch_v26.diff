@@ -1,0 +1,1099 @@
+diff --git a/mnt/work/archiv_unz/concierge-server.mjs b/mnt/work/patch_v26/concierge-server.mjs
+index 29150a5..754bd07 100644
+--- a/mnt/work/archiv_unz/concierge-server.mjs
++++ b/mnt/work/patch_v26/concierge-server.mjs
+@@ -229,24 +229,152 @@ function normText(s) {
+ 
+ // Convert common user date formats to ISO (YYYY-MM-DD).
+ // Supported: YYYY-MM-DD, DD.MM.YYYY, D.M.YY, DD/MM/YY, DD-MM-YYYY, etc.
++function isValidDateYMD(y, m, d) {
++  if (![y, m, d].every(Number.isFinite)) return false;
++  if (y < 1900 || y > 2100) return false;
++  if (m < 1 || m > 12) return false;
++  if (d < 1 || d > 31) return false;
++  const dt = new Date(Date.UTC(y, m - 1, d));
++  return dt.getUTCFullYear() === y && dt.getUTCMonth() === (m - 1) && dt.getUTCDate() === d;
++}
++
++function ymdInTimeZone(date, tz = "Europe/Vienna") {
++  try {
++    const parts = new Intl.DateTimeFormat("en-US", {
++      timeZone: tz,
++      year: "numeric",
++      month: "2-digit",
++      day: "2-digit",
++    }).formatToParts(date);
++    const get = (type) => parts.find((p) => p.type === type)?.value;
++    const y = Number(get("year"));
++    const m = Number(get("month"));
++    const d = Number(get("day"));
++    if (!isValidDateYMD(y, m, d)) return null;
++    return { y, m, d };
++  } catch {
++    // Fallback: local timezone (still OK for absolute dates)
++    const y = date.getFullYear();
++    const m = date.getMonth() + 1;
++    const d = date.getDate();
++    if (!isValidDateYMD(y, m, d)) return null;
++    return { y, m, d };
++  }
++}
++
++// Convert common user date formats to ISO (YYYY-MM-DD).
++// Supported:
++// - YYYY-MM-DD / YYYY-M-D
++// - DD.MM.YYYY / D.M.YY / DD/MM/YY / DD-MM-YYYY
++// - DD.MM (year inferred: current or next year)
++// - "heute", "morgen", "übermorgen" (+ EN: today/tomorrow)
++// - "13 Jan 2026", "13 Januar 26" (DE/EN month names)
+ function toISODate(input) {
+-  const raw = norm(input);
+-  if (!raw) return null;
+-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
++  const raw0 = norm(input);
++  if (!raw0) return null;
++  const raw = raw0.trim();
+ 
+-  const m = raw.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.\/-](\d{2,4})$/);
+-  if (!m) return null;
+-  let d = Number(m[1]);
+-  let mo = Number(m[2]);
+-  let y = Number(m[3]);
+-  if (![d, mo, y].every(Number.isFinite)) return null;
+-  if (y < 100) y = (y <= 69) ? (2000 + y) : (1900 + y);
+-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+-  const dd = String(d).padStart(2, "0");
+-  const mm = String(mo).padStart(2, "0");
+-  return `${y}-${mm}-${dd}`;
++  const t = normText(raw);
++
++  // Relative keywords
++  if (/(^|\s)(heute|today)(\s|$)/i.test(t)) {
++    const ymd = ymdInTimeZone(new Date(), "Europe/Vienna");
++    if (!ymd) return null;
++    return `${ymd.y}-${String(ymd.m).padStart(2, "0")}-${String(ymd.d).padStart(2, "0")}`;
++  }
++  if (/(^|\s)(morgen|tomorrow)(\s|$)/i.test(t)) {
++    const ymd = ymdInTimeZone(new Date(Date.now() + 86400000), "Europe/Vienna");
++    if (!ymd) return null;
++    return `${ymd.y}-${String(ymd.m).padStart(2, "0")}-${String(ymd.d).padStart(2, "0")}`;
++  }
++  if (/(^|\s)(uebermorgen|übermorgen|day\s+after\s+tomorrow)(\s|$)/i.test(t)) {
++    const ymd = ymdInTimeZone(new Date(Date.now() + 2 * 86400000), "Europe/Vienna");
++    if (!ymd) return null;
++    return `${ymd.y}-${String(ymd.m).padStart(2, "0")}-${String(ymd.d).padStart(2, "0")}`;
++  }
++
++  // ISO-like (allow single digits and / . as separators)
++  let m = raw.match(/^(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})$/);
++  if (m) {
++    const y = Number(m[1]);
++    const mo = Number(m[2]);
++    const d = Number(m[3]);
++    if (!isValidDateYMD(y, mo, d)) return null;
++    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
++  }
++
++  // Numeric D.M.[YY[YY]] or D-M-[YY[YY]] etc (year optional)
++  m = raw.match(/^(\d{1,2})[\.\/-](\d{1,2})(?:[\.\/-](\d{2,4}))?$/);
++  if (m) {
++    const d = Number(m[1]);
++    const mo = Number(m[2]);
++    let y = m[3] !== undefined ? Number(m[3]) : NaN;
++
++    // Year missing: infer (current year or next year if already passed)
++    if (!Number.isFinite(y)) {
++      const base = ymdInTimeZone(new Date(), "Europe/Vienna");
++      if (!base) return null;
++      y = base.y;
++      if (isValidDateYMD(y, mo, d)) {
++        const candidate = new Date(Date.UTC(y, mo - 1, d));
++        const today = new Date(Date.UTC(base.y, base.m - 1, base.d));
++        if (candidate.getTime() + 86400000 < today.getTime()) y = y + 1;
++      }
++    } else if (y < 100) {
++      y = (y <= 69) ? (2000 + y) : (1900 + y);
++    }
++
++    if (!isValidDateYMD(y, mo, d)) return null;
++    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
++  }
++
++  // Month names (DE/EN)
++  const months = {
++    jan: 1, januar: 1, jänner: 1, jaenner: 1, january: 1,
++    feb: 2, februar: 2, february: 2,
++    mar: 3, märz: 3, maerz: 3, mrz: 3, march: 3,
++    apr: 4, april: 4,
++    may: 5, mai: 5,
++    jun: 6, juni: 6, june: 6,
++    jul: 7, juli: 7, july: 7,
++    aug: 8, august: 8,
++    sep: 9, sept: 9, september: 9,
++    oct: 10, okt: 10, oktober: 10, october: 10,
++    nov: 11, november: 11,
++    dec: 12, dez: 12, dezember: 12, december: 12,
++  };
++
++  // e.g. "13 Jan 2026" or "13. Januar 26"
++  m = t.match(/^(\d{1,2})\s*\.?\s*([a-zäöü]+)\s*(\d{2,4})?$/i);
++  if (m) {
++    const d = Number(m[1]);
++    const key = String(m[2] || "").toLowerCase();
++    const mo = months[key] || months[key.slice(0, 3)] || null;
++    if (!mo) return null;
++
++    let y;
++    if (m[3] !== undefined && m[3] !== "") {
++      y = Number(m[3]);
++      if (y < 100) y = (y <= 69) ? (2000 + y) : (1900 + y);
++    } else {
++      const base = ymdInTimeZone(new Date(), "Europe/Vienna");
++      if (!base) return null;
++      y = base.y;
++      if (isValidDateYMD(y, mo, d)) {
++        const candidate = new Date(Date.UTC(y, mo - 1, d));
++        const today = new Date(Date.UTC(base.y, base.m - 1, base.d));
++        if (candidate.getTime() + 86400000 < today.getTime()) y = y + 1;
++      }
++    }
++
++    if (!isValidDateYMD(y, mo, d)) return null;
++    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
++  }
++
++  return null;
+ }
+ 
++
+ function detectCategory(userText) {
+   const t = normText(userText);
+   if (!t) return null;
+@@ -306,6 +434,34 @@ function parseListSelection(text) {
+ function isHttpUrl(u) {
+   return /^https?:\/\//i.test(String(u || "").trim());
+ }
++function splitHttpUrls(value) {
++  const s = String(value || "").trim();
++  if (!s) return [];
++  const parts = s.split(/\s*\|\s*/g).map((p) => p.trim()).filter(Boolean);
++  const out = [];
++  for (const p of parts) {
++    if (isHttpUrl(p) && !out.includes(p)) out.push(p);
++  }
++  return out;
++}
++
++function pickFirstHttpUrl(...values) {
++  for (const v of values) {
++    const urls = splitHttpUrls(v);
++    if (urls.length) return urls[0];
++  }
++  return null;
++}
++
++function stripUrlsFromText(text) {
++  return String(text || "")
++    .replace(/https?:\/\/\S+/gi, "")
++    .replace(/\bwww\.\S+/gi, "")
++    .replace(/\s+/g, " ")
++    .trim();
++}
++
++
+ 
+ 
+ // ---------------- Booking / Availability / Prices (Smoobu) ----------------
+@@ -327,24 +483,97 @@ function isBookingIntent(userText) {
+   return false;
+ }
+ 
++function addDaysISO(iso, days) {
++  try {
++    const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
++    if (!m) return null;
++    const y = Number(m[1]);
++    const mo = Number(m[2]);
++    const d = Number(m[3]);
++    if (!isValidDateYMD(y, mo, d)) return null;
++    const dt = new Date(Date.UTC(y, mo - 1, d));
++    const out = new Date(dt.getTime() + Number(days) * 86400000);
++    const yy = out.getUTCFullYear();
++    const mm = String(out.getUTCMonth() + 1).padStart(2, "0");
++    const dd = String(out.getUTCDate()).padStart(2, "0");
++    return `${yy}-${mm}-${dd}`;
++  } catch {
++    return null;
++  }
++}
++
+ function extractDateRange(userText) {
+   const raw = String(userText || "");
+   const hits = [];
+-  const re = /(\d{4}-\d{2}-\d{2}|\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4})/g;
++
++  // Explicit keywords (anreise/abreise) first
++  const a = raw.match(/anreise[:\s]*([^\s,;]+)/i);
++  const d = raw.match(/abreise[:\s]*([^\s,;]+)/i);
++  const aIso = a ? toISODate(a[1]) : null;
++  const dIso = d ? toISODate(d[1]) : null;
++  if (aIso || dIso) return { arrival: aIso || null, departure: dIso || null };
++
++  // Numeric & ISO-like dates (year optional)
++  const re = /(\d{4}[-\/\.]\d{1,2}[-\/\.]\d{1,2}|\d{1,2}[\.\/-]\d{1,2}(?:[\.\/-]\d{2,4})?)/g;
+   for (const m of raw.matchAll(re)) {
+     const iso = toISODate(m[1]);
+     if (iso) hits.push(iso);
+   }
+-  if (hits.length >= 2) return { arrival: hits[0], departure: hits[1] };
+ 
+-  // Also support explicit keywords (anreise/abreise)
+-  const a = raw.match(/anreise[:\s]*([0-9\.\-\/]{6,12})/i);
+-  const d = raw.match(/abreise[:\s]*([0-9\.\-\/]{6,12})/i);
+-  const aIso = a ? toISODate(a[1]) : null;
+-  const dIso = d ? toISODate(d[1]) : null;
+-  return { arrival: aIso || null, departure: dIso || null };
++  // Month-name forms like "13 Januar 26"
++  const monthRe = /(\d{1,2}\s*\.?\s*[A-Za-zÄÖÜäöü]+(?:\s*\d{2,4})?)/g;
++  for (const m of raw.matchAll(monthRe)) {
++    const iso = toISODate(m[1]);
++    if (iso) hits.push(iso);
++  }
++
++  // Relative words as candidates
++  const relRe = /(heute|morgen|übermorgen|uebermorgen|today|tomorrow)/gi;
++  for (const m of raw.matchAll(relRe)) {
++    const iso = toISODate(m[1]);
++    if (iso) hits.push(iso);
++  }
++
++  // De-dup while preserving order
++  const uniq = [];
++  const seen = new Set();
++  for (const h of hits) {
++    if (!h || seen.has(h)) continue;
++    seen.add(h);
++    uniq.push(h);
++  }
++
++  if (uniq.length >= 2) {
++    let arrival = uniq[0];
++    let departure = uniq[1];
++    // If swapped, auto-fix
++    if (arrival && departure && arrival > departure) {
++      const tmp = arrival;
++      arrival = departure;
++      departure = tmp;
++    }
++    return { arrival, departure };
++  }
++
++  // One date + nights?
++  if (uniq.length === 1) {
++    const arrival = uniq[0];
++    const t = foldText(raw);
++    const m = t.match(/(\d{1,2})\s*(naechte|nächte|nachten|nights?)\b/);
++    if (m) {
++      const nights = Number(m[1]);
++      if (Number.isFinite(nights) && nights > 0 && nights <= 30) {
++        const departure = addDaysISO(arrival, nights);
++        return { arrival, departure };
++      }
++    }
++    return { arrival, departure: null };
++  }
++
++  return { arrival: null, departure: null };
+ }
+ 
++
+ function extractGuestCount(userText) {
+   const t = foldText(userText);
+ 
+@@ -464,33 +693,77 @@ function buildStayOptionList(data, { guests, unitFilter, categoryFilter } = {})
+   return opts;
+ }
+ 
+-function bookingActionsForMissingGuests(locale) {
+-  const de = [
+-    { type: "postback", label: "2 Personen", message: "2 Personen", kind: "primary" },
+-    { type: "postback", label: "3 Personen", message: "3 Personen" },
+-    { type: "postback", label: "4 Personen", message: "4 Personen" },
+-    { type: "postback", label: "5 Personen", message: "5 Personen" },
+-    { type: "link", label: "Online buchen", url: "/buchen/", kind: "link" },
+-  ];
+-  const en = [
+-    { type: "postback", label: "2 guests", message: "2 guests", kind: "primary" },
+-    { type: "postback", label: "3 guests", message: "3 guests" },
+-    { type: "postback", label: "4 guests", message: "4 guests" },
+-    { type: "postback", label: "5 guests", message: "5 guests" },
+-    { type: "link", label: "Book online", url: "/buchen/", kind: "link" },
++function bookingCategoryActions(locale) {
++  const isEn = String(locale || "").toLowerCase().startsWith("en");
++  return isEn
++    ? [
++        { type: "postback", label: "Apartments", message: "Apartments" },
++        { type: "postback", label: "Suites", message: "Suites" },
++        { type: "postback", label: "Premium Suites", message: "Premium Suites" },
++        { type: "postback", label: "All categories", message: "All categories" },
++      ]
++    : [
++        { type: "postback", label: "Apartments", message: "Apartments" },
++        { type: "postback", label: "Suiten", message: "Suiten" },
++        { type: "postback", label: "Premium", message: "Premium Suiten" },
++        { type: "postback", label: "Alle Kategorien", message: "Alle Kategorien" },
++      ];
++}
++
++function bookingGuestCountActions(locale) {
++  const isEn = String(locale || "").toLowerCase().startsWith("en");
++  const nums = [1, 2, 3, 4, 5, 6];
++  return nums.map((n) => ({
++    type: "postback",
++    label: isEn ? `${n} guests` : `${n} Personen`,
++    message: isEn ? `${n} guests` : `${n} Personen`,
++    kind: n === 2 ? "primary" : undefined,
++  }));
++}
++
++function bookingActionsForNeedDates(locale) {
++  const isEn = String(locale || "").toLowerCase().startsWith("en");
++  return [
++    ...bookingCategoryActions(locale),
++    { type: "link", label: isEn ? "Open booking tool" : "Buchungstool öffnen", url: "/buchen/", kind: "primary" },
+   ];
+-  return (String(locale || "").toLowerCase().startsWith("en")) ? en : de;
+ }
+ 
+-function bookingActionsForResults(opts, { showDetails = true } = {}) {
++function bookingActionsForResults(opts, locale) {
++  const isEn = String(locale || "").toLowerCase().startsWith("en");
++  const top = Array.isArray(opts) ? opts.slice(0, 4) : [];
+   const actions = [];
+-  const top = opts.slice(0, 4);
+-  for (const o of top) {
+-    actions.push({ type: "link", label: `Buchen: ${o.name}`, url: o.book_url, kind: "primary" });
+-    if (showDetails && o.details_url) actions.push({ type: "link", label: `Details: ${o.name}`, url: o.details_url });
++  top.forEach((o, i) => {
++    actions.push({
++      type: "postback",
++      label: `${i + 1}) ${o.name}`,
++      message: String(i + 1),
++      kind: i === 0 ? "primary" : undefined,
++    });
++  });
++  actions.push({ type: "link", label: isEn ? "Open booking tool" : "Buchungstool öffnen", url: "/buchen/" });
++  actions.push({ type: "postback", label: isEn ? "Other dates" : "Andere Daten", message: isEn ? "Other dates" : "Andere Daten" });
++  actions.push(...bookingCategoryActions(locale));
++  return actions;
++}
++
++function bookingActionsForSelectedUnit(selected, locale, { askGuests = false } = {}) {
++  const isEn = String(locale || "").toLowerCase().startsWith("en");
++  const actions = [];
++  if (askGuests) actions.push(...bookingGuestCountActions(locale));
++  if (selected?.book_url) {
++    actions.push({
++      type: "link",
++      label: isEn ? "Book this" : "Diese Unterkunft buchen",
++      url: selected.book_url,
++      kind: "primary",
++    });
++  } else {
++    actions.push({ type: "link", label: isEn ? "Open booking tool" : "Buchungstool öffnen", url: "/buchen/", kind: "primary" });
+   }
+-  actions.push({ type: "postback", label: "Andere Daten", message: "Andere Daten" });
+-  actions.push({ type: "link", label: "Alle Optionen im Buchungstool", url: "/buchen/" });
++  actions.push({ type: "postback", label: isEn ? "Back to list" : "Zurück zur Liste", message: isEn ? "Back" : "Zurück" });
++  actions.push({ type: "postback", label: isEn ? "Other dates" : "Andere Daten", message: isEn ? "Other dates" : "Andere Daten" });
++  actions.push(...bookingCategoryActions(locale));
+   return actions;
+ }
+ 
+@@ -499,124 +772,203 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
+   if (!t) return null;
+ 
+   const isIntent = isBookingIntent(t);
+-  const sess = sessionId ? (getSession(sessionId) || { ts: Date.now() }) : null;
+-  const booking = (sess && sess.booking) ? sess.booking : null;
+-  const hasContext = Boolean(booking && booking.inProgress);
++  const sess0 = sessionId ? (getSession(sessionId) || { ts: Date.now() }) : null;
++  const hasContext = Boolean(sess0?.booking?.inProgress);
+ 
+   if (!isIntent && !hasContext) return null;
+ 
+-  // Session is recommended for a smooth flow (buttons / follow-ups).
+-  const s = sessionId ? (getSession(sessionId) || { ts: Date.now() }) : { ts: Date.now() };
++  const isEn = String(locale || "").toLowerCase().startsWith("en");
++
++  // Create or reuse session (if sessionId missing, we still do a one-shot answer)
++  const s = sessionId ? (sess0 || { ts: Date.now() }) : { ts: Date.now() };
+   s.booking = s.booking || {};
+   s.booking.inProgress = true;
+ 
+-  // Reset / start over
+-  if (/^(reset|neu|von vorne|andere daten|andere termine|start over)$/i.test(foldText(t))) {
+-    s.booking = { inProgress: true };
++  // Basic navigation commands
++  const tFold = foldText(t);
++  const wantsReset = /^(reset|neu|von vorne|start over|other dates|andere daten|andere termine)/i.test(tFold);
++  const wantsBack = /^(zuruck|zurueck|back|liste|list|uebersicht|overview)$/i.test(tFold);
++
++  if (wantsReset) {
++    const keepCat = s.booking.categoryFilter || null;
++    s.booking = { inProgress: true, categoryFilter: keepCat };
+     s.ts = Date.now();
+     if (sessionId) sessionState.set(sessionId, s);
+     return {
+-      reply: "Alles klar. Nenne mir bitte **Anreise** und **Abreise** (YYYY-MM-DD) und die **Anzahl Personen**.",
+-      actions: bookingActionsForMissingGuests(locale),
++      reply: isEn
++        ? "Tell me your **arrival** and **departure** date (e.g. **1.2.26 – 5.2.26**)."
++        : "Nenne mir bitte **Anreise** und **Abreise** (z. B. **1.2.26 – 5.2.26**).",
++      actions: bookingActionsForNeedDates(locale),
+       source: "smoobu",
+     };
+   }
+ 
+-  // Update draft with whatever we can extract
++  if (wantsBack) {
++    s.booking.unitFilter = null;
++    s.booking.selectedApartmentId = null;
++    s.ts = Date.now();
++    if (sessionId) sessionState.set(sessionId, s);
++    // fall through → show list (if dates exist)
++  }
++
++  // If user selects a number after we showed booking options, map it to that option (session only)
++  const sel = parseListSelection(t);
++  if (sel && Array.isArray(s.booking.lastOptions) && s.booking.lastOptions.length >= sel) {
++    const picked = s.booking.lastOptions[sel - 1];
++    if (picked) {
++      s.booking.unitFilter = picked.name;
++      s.booking.selectedApartmentId = picked.apartmentId;
++    }
++  }
++
++  // Update booking state from user text
+   const range = extractDateRange(t);
+   if (range.arrival) s.booking.arrival = range.arrival;
+   if (range.departure) s.booking.departure = range.departure;
+ 
+-  const guests = extractGuestCount(t);
+-  if (guests) s.booking.guests = guests;
+-
+-  const unit = findUnitMentionInText(t);
+-  if (unit) s.booking.unitFilter = unit.name;
++  const g = extractGuestCount(t);
++  if (g) s.booking.guests = g;
+ 
++  // Category filter (optional)
+   const cat = detectUnitCategoryFilter(t);
+   if (cat) s.booking.categoryFilter = cat;
+ 
++  if (/(^|\s)(alle\s+kategorien|all\s+categories|ohne\s+filter|no\s+filter|egal)(\s|$)/i.test(normText(t))) {
++    s.booking.categoryFilter = null;
++  }
++
++  // Unit mention by name (works even without session)
++  const unitMention = findUnitMentionInText(t);
++  if (unitMention) {
++    s.booking.unitFilter = unitMention.name;
++    s.booking.selectedApartmentId = unitMention.smoobu_id;
++  }
++
+   // Persist session
+   s.ts = Date.now();
+   if (sessionId) sessionState.set(sessionId, s);
+ 
+   const arrival = s.booking.arrival || null;
+   const departure = s.booking.departure || null;
+-  const g = s.booking.guests || null;
+ 
+   if (!arrival || !departure) {
++    const catLine = s.booking.categoryFilter
++      ? (isEn ? `Category: **${s.booking.categoryFilter}**\n` : `Kategorie: **${s.booking.categoryFilter}**\n`)
++      : "";
+     return {
+-      reply:
+-        "Für die Verfügbarkeit/Preise brauche ich **Anreise** und **Abreise**.\n" +
+-        "Bitte im Format **YYYY-MM-DD** (z. B. **2026-02-01** bis **2026-02-05**).",
+-      actions: bookingActionsForMissingGuests(locale),
++      reply: catLine + (isEn
++        ? "Tell me your **arrival** and **departure** date (e.g. **1.2.26 – 5.2.26**)."
++        : "Nenne mir bitte **Anreise** und **Abreise** (z. B. **1.2.26 – 5.2.26**)."),
++      actions: bookingActionsForNeedDates(locale),
+       source: "smoobu",
+     };
+   }
+ 
+-  if (!g) {
++  // Pricing: If the guest count is unknown, we still show a *base* price for 1 guest (better UX than blocking).
++  const pricingGuests = Number.isFinite(Number(s.booking.guests)) && Number(s.booking.guests) > 0 ? Number(s.booking.guests) : 1;
++  const guestsKnown = Boolean(Number.isFinite(Number(s.booking.guests)) && Number(s.booking.guests) > 0);
++
++  const data = await fetchStayOptions({ arrival, departure, guests: pricingGuests });
++
++  const opts = buildStayOptionList(data, {
++    arrival,
++    departure,
++    guests: pricingGuests,
++    categoryFilter: s.booking.categoryFilter || null,
++  });
++
++  // Store last booking options for numeric selection ("2") in this session.
++  if (sessionId) {
++    s.booking.lastOptions = opts.slice(0, 10);
++    s.ts = Date.now();
++    sessionState.set(sessionId, s);
++  }
++
++  // If a unit was selected (by name or numeric selection), show a focused view.
++  const selectedId = s.booking.selectedApartmentId ? Number(s.booking.selectedApartmentId) : null;
++  const selectedNameFold = s.booking.unitFilter ? foldText(String(s.booking.unitFilter)) : "";
++  const selected =
++    (Number.isFinite(selectedId) && opts.find((o) => Number(o.apartmentId) === selectedId)) ||
++    (selectedNameFold && opts.find((o) => foldText(o.name) === selectedNameFold)) ||
++    null;
++
++  if (selected) {
+     const n = nightsBetween(arrival, departure);
++    const meta = [
++      selected.category || null,
++      Number.isFinite(selected.max_persons) ? `max ${selected.max_persons}` : null,
++      Number.isFinite(selected.m2) ? `${selected.m2} m²` : null,
++    ].filter(Boolean).join(" · ");
++
++    const money = formatMoney(selected.price, selected.currency);
++
++    const lines = [];
++    lines.push(`**${selected.name}**${meta ? ` (${meta})` : ""}`);
++    lines.push(isEn
++      ? `Dates: **${arrival}** → **${departure}**${n ? ` (${n} nights)` : ""}`
++      : `Zeitraum: **${isoToDE(arrival)}** – **${isoToDE(departure)}**${n ? ` (${n} Nächte)` : ""}`);
++    lines.push(guestsKnown
++      ? (isEn ? `Price for **${pricingGuests} guests**: **${money}**` : `Preis für **${pricingGuests} Personen**: **${money}**`)
++      : (isEn ? `Base price (1 guest): **${money}**` : `Basispreis (1 Person): **${money}**`));
++    if (!guestsKnown) {
++      lines.push(isEn
++        ? "For the exact price, pick your group size:"
++        : "Für den exakten Preis: wähle eure Personenzahl:");
++    }
++
+     return {
+-      reply:
+-        `Danke! Zeitraum: **${isoToDE(arrival)}** bis **${isoToDE(departure)}**` +
+-        (n ? ` (**${n} Nächte**)` : "") +
+-        `.\nWie viele Personen seid ihr?`,
+-      actions: bookingActionsForMissingGuests(locale),
++      reply: lines.join("\n"),
++      actions: bookingActionsForSelectedUnit(selected, locale, { askGuests: !guestsKnown }),
+       source: "smoobu",
+     };
+   }
+ 
+-  // Fetch options from Smoobu
+-  const data = await fetchStayOptions({ arrival, departure, guests: g });
+-  const opts = buildStayOptionList(data, {
+-    guests: g,
+-    unitFilter: s.booking.unitFilter,
+-    categoryFilter: s.booking.categoryFilter,
+-  });
+-
++  // No selection → show list
+   const n = nightsBetween(arrival, departure);
++  const headBits = [];
++  headBits.push(isEn
++    ? `✅ Availability: **${arrival}** → **${departure}**${n ? ` (${n} nights)` : ""}`
++    : `✅ Frei: **${isoToDE(arrival)}** – **${isoToDE(departure)}**${n ? ` (${n} Nächte)` : ""}`);
++  if (s.booking.categoryFilter) headBits.push(isEn ? `Category: **${s.booking.categoryFilter}**` : `Kategorie: **${s.booking.categoryFilter}**`);
++  headBits.push(guestsKnown
++    ? (isEn ? `Guests: **${pricingGuests}**` : `Personen: **${pricingGuests}**`)
++    : (isEn ? "Price basis: **1 guest**" : "Preis-Basis: **1 Person**"));
++
+   if (!opts.length) {
+     return {
+-      reply:
+-        `Leider finde ich für **${isoToDE(arrival)}** bis **${isoToDE(departure)}**` +
+-        (n ? ` (${n} Nächte)` : "") +
+-        ` und **${g} Personen** keine freien Einheiten.` +
+-        `\nMöchtest du andere Daten prüfen?`,
+-      actions: [
+-        { type: "postback", label: "Andere Daten", message: "Andere Daten", kind: "primary" },
+-        { type: "link", label: "Online buchen (alle Optionen)", url: "/buchen/" },
+-      ],
++      reply: headBits.join(" · ") + "\n" + (isEn
++        ? "Unfortunately nothing is available for that period. Try other dates."
++        : "Leider ist für diesen Zeitraum nichts frei. Versuch bitte andere Daten."),
++      actions: bookingActionsForNeedDates(locale),
+       source: "smoobu",
+     };
+   }
+ 
+-  const header =
+-    `✅ Frei für **${isoToDE(arrival)}** bis **${isoToDE(departure)}**` +
+-    (n ? ` (${n} Nächte)` : "") +
+-    ` · **${g} Personen**` +
+-    (s.booking.categoryFilter ? ` · Filter: **${s.booking.categoryFilter}**` : "") +
+-    (s.booking.unitFilter ? ` · Wunsch: **${s.booking.unitFilter}**` : "") +
+-    `\n` +
+-    `Preis (gesamt) laut Smoobu:`;
++  const lines = [];
++  lines.push(headBits.join(" · "));
++  lines.push(isEn ? "Pick an option:" : "Wähle eine Option:");
+ 
+-  const lines = opts.slice(0, 6).map((o, i) => {
+-    const meta = [
+-      o.category ? o.category : null,
+-      (o.max_persons ? `max ${o.max_persons}` : null),
+-      (o.m2 ? `${o.m2} m²` : null),
+-    ].filter(Boolean).join(" · ");
++  opts.slice(0, 8).forEach((o, i) => {
++    const meta = [o.category, Number.isFinite(o.max_persons) ? `max ${o.max_persons}` : null, Number.isFinite(o.m2) ? `${o.m2} m²` : null]
++      .filter(Boolean)
++      .join(" · ");
+     const money = formatMoney(o.price, o.currency);
+-    return `${i + 1}) **${o.name}**${meta ? ` (${meta})` : ""} – **${money}**`;
++    lines.push(`${i + 1}) **${o.name}**${meta ? ` (${meta})` : ""} – **${money}**`);
+   });
+ 
++  if (opts.length > 8) {
++    lines.push(isEn ? `(+${opts.length - 8} more)` : `(+${opts.length - 8} weitere)`);
++  }
++
+   return {
+-    reply: [header, ...lines].join("\n"),
+-    actions: bookingActionsForResults(opts),
++    reply: lines.join("\n"),
++    actions: bookingActionsForResults(opts, locale),
+     source: "smoobu",
+   };
+ }
+ 
+ 
++
+ function mdLink(label, url) {
+   // The frontend renders clickable sources separately via `links`.
+   // Keep the reply text clean and non-hallucinated.
+@@ -626,103 +978,102 @@ function mdLink(label, url) {
+ 
+ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
+   const k = normalizeKnowledge(kRaw);
+-  if (!k || !k.categories) return null;
+-  const cats = k.categories;
+-  const dirs = Array.isArray(k.directories) ? k.directories : [];
+-  // Category aliases (legacy detector -> unified knowledge schema)
+-  const catKey = ({ lakes: "lakes_pools_wellness", wellness_pools: "lakes_pools_wellness" }[cat] || cat);
++  if (!k) return { reply: "Wissen ist gerade nicht geladen.", links: [] };
++
++  const mapTitle = {
++    skigebiete: "Skigebiete",
++    restaurants: "Restaurants",
++    lakes_pools_wellness: "Seen & Wellness",
++    activities: "Aktivitäten",
++    hikes: "Wanderungen",
++    family: "Familie & Kids",
++    shopping: "Shopping",
++    nightlife: "Nightlife",
++    events: "Events",
++    alpenlodge: "Alpenlodge (Ausstattung & Hausinfos)",
++  };
++  const title = mapTitle[cat] || "Tipps";
+ 
+-  const within = (item) => {
++  const isEvents = cat === "events";
++  const itemsRaw = Array.isArray(k.categories?.[cat]) ? k.categories[cat] : [];
++  const items = itemsRaw.filter((item) => {
++    if (!item) return false;
+     const d = item?.approx_km_road;
+-    if (typeof d !== "number") return true;
+-    return d <= radiusKm;
+-  };
++    if (typeof d === "number" && Number.isFinite(d) && d > radiusKm) return false;
++    return true;
++  });
+ 
+-  const title = {
+-    ski: "Skigebiete",
+-    rodel: "Rodeln & Schlitten",
+-    lakes: "Badeseen & Wasser",
+-    wellness_pools: "Wellness & Bäder",
+-    restaurants: "Restaurants & Kulinarik",
+-    hiking: "Wanderwege (Sommer/Winter)",
+-    events: "Veranstaltungen & Sportevents",
+-    medical: "Ärzte/Apotheke/Notruf",
+-    alpenlodge: "Alpenlodge – Ausstattung",
+-    bayern_daytrips: "Ausflüge Bayern",
+-  }[cat] || cat;
+-
+-  const itemsAll = (cats[catKey] || []).filter(within);
+-  const items = itemsAll.slice(0, 12);
+-
+-  // Pick a few relevant official directories (fallback/sources)
+-  const dirKeywords = {
+-    ski: ["ski", "piste", "schnee"],
+-    rodel: ["rodel", "schlitten"],
+-    lakes: ["baden", "see", "strand"],
+-    wellness_pools: ["wellness", "sauna", "hallen"],
+-    restaurants: ["gastro", "kulinar", "restaurant"],
+-    events: ["event", "veranst"],
+-    medical: ["notruf", "apothek"],
+-    hiking: ["tour", "aktiv"],
+-    bayern_daytrips: ["schliersee", "tegern"],
+-    alpenlodge: ["alpenlodge"],
+-  };
+-  const kws = dirKeywords[cat] || [];
+-  const pickedDirs = dirs.filter((d) => {
+-    const l = (d?.label || "").toLowerCase();
+-    return kws.some((kw) => l.includes(kw));
++  // Sort: events by start date; otherwise by distance if available
++  const sorted = [...items].sort((a, b) => {
++    if (isEvents) {
++      const da = String(a?.date_start_iso || "");
++      const db = String(b?.date_start_iso || "");
++      if (da && db) return da.localeCompare(db);
++      if (da) return -1;
++      if (db) return 1;
++      return 0;
++    }
++    const da = typeof a?.approx_km_road === "number" ? a.approx_km_road : Infinity;
++    const db = typeof b?.approx_km_road === "number" ? b.approx_km_road : Infinity;
++    return da - db;
+   });
+-  const extraDirs = (pickedDirs.length ? pickedDirs : dirs).slice(0, 6);
++
++  const max = isEvents ? 10 : 12;
++  const shown = sorted.slice(0, max);
+ 
+   const lines = [];
+-  lines.push(`**${title} (Radius ~${radiusKm} km)**`);
+-  if (cat === "events") {
+-    lines.push("Sag mir Monat/Datum und Sportart (z. B. Skirennen, Trailrun, Fußball), dann filtere ich aus den offiziellen Kalendern.");
++  lines.push(`**${title}**`);
++
++  if (isEvents) {
++    lines.push("Wenn du mir Monat/Datum und Art (z. B. „Konzert“, „Markt“) sagst, filtere ich dir passende Termine.");
+   }
+ 
+-  if (!items.length) {
+-    // No item-level entries available: provide official directories as sources.
+-    lines.push("Hier sind die offiziellen Quellen (immer aktuell):");
++  if (!shown.length) {
++    lines.push("Dazu habe ich aktuell keine verifizierten Einträge in meiner Wissenssammlung.");
++    lines.push("Im Block **Infos & Links** findest du passende Link‑Tipps.");
+   } else {
+-    // Remember the last list for follow-up answers like "2".
+-    setLastList(sessionId, items);
+-    items.forEach((it, idx) => {
++    if (sessionId) {
++      const sess = getSession(sessionId) || { ts: Date.now() };
++      sess.lastList = shown;
++      sess.ts = Date.now();
++      sessionState.set(sessionId, sess);
++    }
++
++    shown.forEach((it, i) => {
+       const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
+-      const note = it.summary ? ` — ${it.summary}` : "";
+       const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? " — intern bestätigt" : "";
+-      lines.push(`${idx + 1}) ${it.name}${dist}${note}${internal}`);
++      const sum = stripUrlsFromText(it.summary);
++      lines.push(`${i + 1}) **${it.name}**${dist}${internal}`);
++      if (sum) lines.push(`   ${sum}`);
+     });
+-  }
+ 
+-  if (extraDirs.length) {
+-    lines.push("\n**Offizielle Quellen/Verzeichnisse:**");
+-    for (const d of extraDirs) lines.push(`- ${d.label}: ${d.url}`);
++    if (sorted.length > shown.length) {
++      lines.push(`… +${sorted.length - shown.length} weitere`);
++    }
+   }
+ 
+-
++  // Links: always in links[], never inline in reply.
+   const links = [];
+-
+   const seen = new Set();
+-  const pushLink = (label, url) => {
+-    if (!url || !isHttpUrl(url)) return;
+-    const key = `${label}@@${url}`;
+-    if (seen.has(key)) return;
+-    seen.add(key);
+-    links.push({ label, url });
++  const addLink = (label, url) => {
++    if (!label || !isHttpUrl(url)) return;
++    const u = String(url).trim();
++    if (seen.has(u)) return;
++    seen.add(u);
++    links.push({ label: String(label), url: u });
+   };
+ 
+-  for (const it of items) {
+-    if (it.url) pushLink(it.name, it.url);
+-    if (it.sourceUrl && it.sourceUrl !== it.url && !String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) {
+-      pushLink(`${it.name} (Quelle)`, it.sourceUrl);
+-    }
+-  }
+-
+-  // Only add directories as links when we had no items (fallback)
+-  if (!items.length) {
+-    for (const d of extraDirs) {
+-      if (d?.url) pushLink(d.label, d.url);
++  if (shown.length) {
++    for (const it of shown) {
++      const u = pickFirstHttpUrl(it.url, it.sourceUrl);
++      if (u) addLink(it.name, u);
+     }
++  } else {
++    // Fallback: directory links for this category
++    const dirs = Array.isArray(k.directories)
++      ? k.directories.filter((d) => d && d.category === cat && isHttpUrl(d.url))
++      : [];
++    dirs.slice(0, 10).forEach((d) => addLink(d.label || "Link", d.url));
+   }
+ 
+   return { reply: lines.join("\n"), links };
+@@ -1345,26 +1696,26 @@ async function conciergeChatHandler(req, res) {
+     }
+     if (sel && sessionId) {
+       const sess = getSession(sessionId);
+-      const list = sess?.lastList || [];
+-      const it = list[sel - 1];
+-      if (it) {
+-        const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
+-        const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? "intern bestätigt" : "";
+-        const replyLines = [
+-          `**${it.name}${dist}**`,
+-          it.summary ? it.summary : "",
+-          internal ? `(${internal})` : "",
+-        ].filter(Boolean);
+-        const links = [];
+-        if (it.url && isHttpUrl(it.url)) links.push({ label: it.name, url: it.url });
+-        if (it.sourceUrl && it.sourceUrl !== it.url && isHttpUrl(it.sourceUrl) && !String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) {
+-          links.push({ label: `${it.name} (Quelle)`, url: it.sourceUrl });
++      const bookingActive = Boolean(sess?.booking?.inProgress);
++      if (!bookingActive) {
++        const list = sess?.lastList || [];
++        const it = list[sel - 1];
++        if (it) {
++          const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
++          const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? "intern bestätigt" : "";
++          const replyLines = [
++            `**${it.name}${dist}**`,
++            it.summary ? stripUrlsFromText(it.summary) : "",
++            internal ? `(${internal})` : "",
++          ].filter(Boolean);
++          const links = [];
++          const u = pickFirstHttpUrl(it.url, it.sourceUrl);
++          if (u) links.push({ label: it.name, url: u });
++          return res.json({ reply: replyLines.join("\n"), links, source: "knowledge" });
+         }
+-        return res.json({ reply: replyLines.join("\n"), links, source: "knowledge" });
+       }
+     }
+ 
+-    
+ 
+     // Booking / availability / prices (Smoobu) — deterministic, no hallucinations
+     try {
+@@ -1414,7 +1765,7 @@ async function conciergeChatHandler(req, res) {
+     const baseSys = messages.find(m => m.role === "system")?.content || "";
+     const hardRules = [
+       "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
+-      "Wenn du etwas nicht sicher weißt, verweise auf offizielle Verzeichnisse/Quellen und gib Links.",
++      "Wenn du etwas nicht sicher weißt, sag das ehrlich und biete passende Links an (falls vorhanden).",
+       "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus dem verifizierten Knowledge (inkl. Links). Keine Rückfragen.",
+     ].join(" ");
+     const instructions = `${hardRules} ${baseSys}`.trim();
+diff --git a/mnt/work/archiv_unz/al-concierge.js b/mnt/work/patch_v26/al-concierge.js
+index dc39ddc..4140872 100644
+--- a/mnt/work/archiv_unz/al-concierge.js
++++ b/mnt/work/patch_v26/al-concierge.js
+@@ -100,12 +100,14 @@
+       .map(({ label, url }) => {
+         const u = esc(url);
+         const l = esc(label);
+-        const small = (l !== u) ? `<div class="al-links-url">${u}</div>` : "";
++        let host = "";
++        try { host = new URL(url).hostname.replace(/^www\./, ""); } catch {}
++        const small = host ? `<div class="al-links-url">${esc(host)}</div>` : "";
+         return `<li><a href="${u}" target="_blank" rel="noopener noreferrer">${l}</a>${small}</li>`;
+       })
+       .join("");
+ 
+-    return `<div class="al-links"><div class="al-links-title">${esc(title || "Quellen")}</div><ul>${items}</ul></div>`;
++    return `<div class="al-links"><div class="al-links-title">${esc(title || "Infos & Links")}</div><ul>${items}</ul></div>`;
+   };
+ 
+   // ----- remove legacy widgets to avoid duplicates
+@@ -403,14 +405,21 @@ body.al-no-scroll{ overflow:hidden; }
+       ? [
+           { type: "link", label: "Book", url: "/buchen/", kind: "primary" },
+           { type: "postback", label: "Availability", message: "Check availability" },
+-          { type: "postback", label: "Prices", message: "Compare prices" }
++          { type: "postback", label: "Prices", message: "Compare prices" },
++          { type: "postback", label: "Apartments", message: "Apartments availability" },
++          { type: "postback", label: "Suites", message: "Suites availability" },
++          { type: "postback", label: "Premium Suites", message: "Premium Suites availability" }
+         ]
+       : [
+           { type: "link", label: "Buchen", url: "/buchen/", kind: "primary" },
+           { type: "postback", label: "Verfügbarkeit", message: "Verfügbarkeit prüfen" },
+-          { type: "postback", label: "Preise", message: "Preise vergleichen" }
++          { type: "postback", label: "Preise", message: "Preise vergleichen" },
++          { type: "postback", label: "Apartments", message: "Apartments Verfügbarkeit" },
++          { type: "postback", label: "Suiten", message: "Suiten Verfügbarkeit" },
++          { type: "postback", label: "Premium", message: "Premium Suiten Verfügbarkeit" }
+         ];
+ 
++
+     function setQuickActions(actions) {
+       if (!quick) return;
+       const list = Array.isArray(actions) ? actions : [];
+@@ -438,17 +447,21 @@ body.al-no-scroll{ overflow:hidden; }
+     }
+ 
+ 
+-    const push = (text, who) => {
+-      const html = renderMsgHtml(text);
++    const push = (text, who, opts = {}) => {
++      const { rawHtml = false, storeInHistory = true } = opts || {};
++      const html = rawHtml ? String(text || "") : renderMsgHtml(text);
+       const m = el("div", `msg ${who}`, html);
+       body.appendChild(m);
+       body.scrollTop = body.scrollHeight;
+ 
+-      const role = who === "bot" ? "assistant" : "user";
+-      history.push({ role, content: String(text || "") });
+-      if (history.length > 20) history.splice(0, history.length - 20);
++      if (storeInHistory) {
++        const role = who === "bot" ? "assistant" : "user";
++        history.push({ role, content: String(text || "") });
++        if (history.length > 20) history.splice(0, history.length - 20);
++      }
+     };
+ 
++
+     push(greet, "bot");
+     setQuickActions(START_ACTIONS);
+ 
+@@ -552,7 +565,7 @@ body.al-no-scroll{ overflow:hidden; }
+           // Show sources as a separate block (clickable), if provided.
+           const links = data && data.links;
+           const linksHtml = renderLinks(links, lang === "en" ? "Info & Links" : "Infos & Links");
+-          if (linksHtml) push(linksHtml, "bot");
++          if (linksHtml) push(linksHtml, "bot", { rawHtml: true, storeInHistory: false });
+           return;
+         }
+ 
+diff --git a/mnt/work/archiv_unz/tests/smoke.mjs b/mnt/work/patch_v26/tests/smoke.mjs
+index 3259efe..47f9fc7 100644
+--- a/mnt/work/archiv_unz/tests/smoke.mjs
++++ b/mnt/work/patch_v26/tests/smoke.mjs
+@@ -125,6 +125,10 @@ function checkLinksArray(title, links) {
+       fail(title, `INTERNAL im links[] gefunden: ${JSON.stringify(l)}`);
+       continue;
+     }
++if (typeof label === "string" && /quelle/i.test(label)) {
++  fail(title, `links[] label enthält 'Quelle' (bitte neutral beschriften): ${JSON.stringify(l)}`);
++  continue;
++}
+ 
+     if (!okUrl(url)) {
+       fail(title, `Ungültige URL in links[]: ${JSON.stringify(l)}`);
+@@ -160,6 +164,12 @@ function checkReplyClean(title, reply) {
+   if (hasInternalMarker(reply)) {
+     fail(title, "INTERNAL Marker im reply Text gefunden");
+   }
++if (/offizielle\s+quellen|quellen\s*\/\s*verzeichnisse/i.test(String(reply || ""))) {
++  fail(title, "reply enthält 'Offizielle Quellen/Verzeichnisse' — das darf nicht angezeigt werden");
++}
++if (/\(\s*quelle\s*\)/i.test(String(reply || ""))) {
++  fail(title, "reply enthält '(Quelle)' — Links sollen neutral in links[] stehen");
++}
+   if (STRICT && containsHttpInText(reply)) {
+     fail(title, "reply enthält http(s) URL — laut Regel sollen URLs nur in links[] stehen");
+   } else if (!STRICT && containsHttpInText(reply)) {
+@@ -271,7 +281,7 @@ async function main() {
+ 
+   // 6) Booking: über Chat (deterministisch) + actions[]
+   try {
+-    const msg = `Verfügbarkeit ${TEST_ARRIVAL} bis ${TEST_DEPARTURE} für ${TEST_GUESTS} Personen`;
++    const msg = `Verfügbarkeit ${TEST_ARRIVAL} bis ${TEST_DEPARTURE}`;
+     const { res, json } = await reqJson("POST", "/api/concierge", {
+       body: {
+         lang: "de",
+diff --git a/mnt/work/archiv_unz/PATCHLOG.md b/mnt/work/patch_v26/PATCHLOG.md
+index 7361260..67764ae 100644
+--- a/mnt/work/archiv_unz/PATCHLOG.md
++++ b/mnt/work/patch_v26/PATCHLOG.md
+@@ -65,3 +65,31 @@
+   - Admin Guards (403 ohne Token, optional Admin-Checks)
+ - Neu: `README_TESTS.md` (Bedienung)
+ - `package.json`: neue Scripts `test:smoke` und `test:smoke:strict`
++
++## v26 — 2026-01-13
++
++**Base-State**
++- concierge-server.mjs sha256: `d5d6425133126d310d821dc9d07026af3e8d79ff9dcb0ea873ecf71968f2deea`
++- al-concierge.js sha256: `b42ac115aa09cc59463f47515413f0be6549d97aa46fb249ce5b5f0bb971d7dd`
++- tests/smoke.mjs sha256: `2477c9ba8f962fcbbbc7ae0fcf4c7ed3bc299b8a2c98d0e650a096285a23905b`
++
++**Changes**
++- **Booking-Chatflow (Smoobu):**
++  - **Personenzahl ist optional**, bis eine Unterkunft ausgewählt wird → der User sieht sofort Angebote & Preise (Basis: 1 Person).
++  - **Flexible Datumseingabe**: ISO, `13.01.26`, `13.01`, `heute/morgen/übermorgen`, Monatsnamen (DE/EN).
++  - Angebotsliste mit **Nummern-Auswahl** ("2") + Quick-Actions für Kategorie/Zurück/Andere Daten.
++- **Knowledge-Antworten:**
++  - Kein "Offizielle Quellen/Verzeichnisse" Text mehr und **keine URLs im reply** → Links ausschließlich über `links[]`.
++  - Link-Labels neutral (kein "(Quelle)") + URLs werden aus `summary` entfernt.
++- **Frontend (Widget):**
++  - `Infos & Links` wird als **echter HTML-Block** gerendert (klickbar) und **nicht** in die Chat-History geschrieben.
++  - Start-Chips erweitert um **Apartments/Suiten/Premium** (schneller Einstieg in Verfügbarkeit/Preise).
++- **Smoke-Tests:**
++  - Booking-Test ohne Gästeangabe.
++  - Guardrails: Fail bei "Offizielle Quellen/Verzeichnisse" oder "(Quelle)" im reply, sowie "Quelle" im links[] label.
++
++**New-State**
++- concierge-server.mjs sha256: `c5061710e52b86d1e2651b168bd767dcf076c6117a9fbf9dc2dd40c96661755a`
++- al-concierge.js sha256: `ef32cd40a4691b44ac6ad10b2be071306240a3b2a62c73f7a1ab7ef90166c216`
++- tests/smoke.mjs sha256: `30fd18eef5196f967a8ee26c309eba33a546ab05f7c42c31acb19ce1219a9548`
++
+diff --git a/mnt/work/archiv_unz/PATCHLOG.md b/mnt/work/patch_v26/PATCHLOG.md
+index 7361260..67764ae 100644
+--- a/mnt/work/archiv_unz/PATCHLOG.md
++++ b/mnt/work/patch_v26/PATCHLOG.md
+@@ -65,3 +65,31 @@
+   - Admin Guards (403 ohne Token, optional Admin-Checks)
+ - Neu: `README_TESTS.md` (Bedienung)
+ - `package.json`: neue Scripts `test:smoke` und `test:smoke:strict`
++
++## v26 — 2026-01-13
++
++**Base-State**
++- concierge-server.mjs sha256: `d5d6425133126d310d821dc9d07026af3e8d79ff9dcb0ea873ecf71968f2deea`
++- al-concierge.js sha256: `b42ac115aa09cc59463f47515413f0be6549d97aa46fb249ce5b5f0bb971d7dd`
++- tests/smoke.mjs sha256: `2477c9ba8f962fcbbbc7ae0fcf4c7ed3bc299b8a2c98d0e650a096285a23905b`
++
++**Changes**
++- **Booking-Chatflow (Smoobu):**
++  - **Personenzahl ist optional**, bis eine Unterkunft ausgewählt wird → der User sieht sofort Angebote & Preise (Basis: 1 Person).
++  - **Flexible Datumseingabe**: ISO, `13.01.26`, `13.01`, `heute/morgen/übermorgen`, Monatsnamen (DE/EN).
++  - Angebotsliste mit **Nummern-Auswahl** ("2") + Quick-Actions für Kategorie/Zurück/Andere Daten.
++- **Knowledge-Antworten:**
++  - Kein "Offizielle Quellen/Verzeichnisse" Text mehr und **keine URLs im reply** → Links ausschließlich über `links[]`.
++  - Link-Labels neutral (kein "(Quelle)") + URLs werden aus `summary` entfernt.
++- **Frontend (Widget):**
++  - `Infos & Links` wird als **echter HTML-Block** gerendert (klickbar) und **nicht** in die Chat-History geschrieben.
++  - Start-Chips erweitert um **Apartments/Suiten/Premium** (schneller Einstieg in Verfügbarkeit/Preise).
++- **Smoke-Tests:**
++  - Booking-Test ohne Gästeangabe.
++  - Guardrails: Fail bei "Offizielle Quellen/Verzeichnisse" oder "(Quelle)" im reply, sowie "Quelle" im links[] label.
++
++**New-State**
++- concierge-server.mjs sha256: `c5061710e52b86d1e2651b168bd767dcf076c6117a9fbf9dc2dd40c96661755a`
++- al-concierge.js sha256: `ef32cd40a4691b44ac6ad10b2be071306240a3b2a62c73f7a1ab7ef90166c216`
++- tests/smoke.mjs sha256: `30fd18eef5196f967a8ee26c309eba33a546ab05f7c42c31acb19ce1219a9548`
++
