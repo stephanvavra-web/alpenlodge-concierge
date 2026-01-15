@@ -1,0 +1,374 @@
+{
+  "meta": {
+    "name": "alpenlodge-project-registry",
+    "version": 2,
+    "updated": "2026-01-15",
+    "purpose": "Single source of truth for naming, endpoints, env vars, modules and contracts."
+  },
+  "paths": {
+    "download_dir_example": "/Users/stephanvavra/uzip",
+    "backend_repo_example": "/Users/stephanvavra/render-current",
+    "frontend_target_example": "/Users/stephanvavra/Desktop/webserver/alpenlodge",
+    "frontend_unused_assets_dir": "_unused_assets/"
+  },
+  "naming": {
+    "unit": "Unterkunft (Marketing/Website)",
+    "apartmentId": "Smoobu Apartment ID (int)",
+    "smoobu_id": "Field in units.json mapping to apartmentId",
+    "offerToken": "Short-lived token referencing an availability offer (optional)"
+  },
+  "frontend_contracts": {
+    "concierge_widget": {
+      "request": {
+        "method": "POST",
+        "path": "/api/concierge",
+        "json": [
+          "lang|locale",
+          "question|message",
+          "page",
+          "sessionId",
+          "history[]"
+        ]
+      },
+      "response": {
+        "json": [
+          "reply",
+          "links[]?",
+          "actions[]?"
+        ]
+      }
+    }
+  },
+  "backend_endpoints": {
+    "health": {
+      "method": "GET",
+      "path": "/health"
+    },
+    "debug_vars": {
+      "method": "GET",
+      "path": "/api/debug/vars"
+    },
+    "debug_knowledge": {
+      "method": "GET",
+      "path": "/api/debug/knowledge"
+    },
+    "concierge_chat": {
+      "method": "POST",
+      "path": "/api/concierge"
+    },
+    "availability": {
+      "method": "POST",
+      "path": "/concierge/availability"
+    },
+    "book": {
+      "method": "POST",
+      "path": "/concierge/book"
+    }
+  },
+  "env_vars": {
+    "OPENAI_API_KEY": {
+      "required": true,
+      "where": "backend"
+    },
+    "SMOOBU_API_KEY": {
+      "required": true,
+      "where": "backend"
+    },
+    "SMOOBU_CUSTOMER_ID": {
+      "required": true,
+      "where": "backend"
+    },
+    "BOOKING_TOKEN_SECRET": {
+      "required": false,
+      "where": "backend",
+      "note": "If used: signs offerTokens"
+    },
+    "ADMIN_TOKEN": {
+      "required": false,
+      "where": "backend",
+      "note": "Protect admin/write proxy endpoints"
+    }
+  },
+  "modules": [
+    {
+      "id": "ops.frontend.safe_deploy",
+      "name": "Frontend deploy without deleting assets",
+      "owner": "ops",
+      "status": "active",
+      "inputs": [
+        "alpenlodge_frontend*.zip",
+        "existing asset library on server"
+      ],
+      "outputs": [
+        "updated code",
+        "assets unchanged"
+      ],
+      "tests": [
+        "rsync dry-run",
+        "open site, check images/videos"
+      ]
+    },
+    {
+      "id": "ops.assets.cleanup_once",
+      "name": "Move orphan assets to archive folder",
+      "owner": "ops",
+      "status": "optional",
+      "inputs": [
+        "frontend code after deploy",
+        "asset files under root"
+      ],
+      "outputs": [
+        "_unused_assets/<ts>/... with moved files",
+        "orphan report json"
+      ],
+      "tests": [
+        "dry-run report",
+        "restore a file if needed"
+      ]
+    },
+    {
+      "id": "svc.db.core",
+      "name": "DB Service core (registry + knowledge + mapping)",
+      "owner": "backend",
+      "status": "planned",
+      "inputs": [
+        "knowledge/*.json",
+        "data/units.json",
+        "docs/PROJECT_REGISTRY.json"
+      ],
+      "outputs": [
+        "normalized domain data",
+        "stable lookups"
+      ],
+      "tests": [
+        "GET /api/debug/knowledge",
+        "unit mapping lookup test"
+      ]
+    },
+    {
+      "id": "connector.smoobu.core",
+      "name": "Smoobu connector (availability/rates/reservations)",
+      "owner": "backend",
+      "status": "active",
+      "inputs": [
+        "SMOOBU_API_KEY",
+        "SMOOBU_CUSTOMER_ID"
+      ],
+      "outputs": [
+        "availability/prices",
+        "reservations"
+      ],
+      "tests": [
+        "POST /concierge/availability",
+        "POST /concierge/book"
+      ]
+    },
+    {
+      "id": "connector.openai.core",
+      "name": "OpenAI connector (LLM completions)",
+      "owner": "backend",
+      "status": "active",
+      "inputs": [
+        "OPENAI_API_KEY"
+      ],
+      "outputs": [
+        "assistant replies"
+      ],
+      "tests": [
+        "basic chat smoke test"
+      ]
+    },
+    {
+      "id": "svc.pms.core",
+      "name": "PMS Service core (domain API)",
+      "owner": "backend",
+      "status": "planned",
+      "inputs": [
+        "DB Service",
+        "Smoobu connector"
+      ],
+      "outputs": [
+        "PMS endpoints"
+      ],
+      "tests": [
+        "contract tests"
+      ]
+    },
+    {
+      "id": "svc.gis.core",
+      "name": "GIS Service core (guest info API)",
+      "owner": "backend",
+      "status": "planned",
+      "inputs": [
+        "DB Service",
+        "knowledge"
+      ],
+      "outputs": [
+        "guest info endpoints"
+      ],
+      "tests": [
+        "contract tests"
+      ]
+    },
+    {
+      "id": "svc.admin.core",
+      "name": "Admin Service core (auth/roles/config)",
+      "owner": "backend",
+      "status": "planned",
+      "inputs": [
+        "DB Service"
+      ],
+      "outputs": [
+        "admin endpoints"
+      ],
+      "tests": [
+        "admin auth tests"
+      ]
+    },
+    {
+      "id": "svc.hp.core",
+      "name": "Homepage Service core (content helpers, concierge proxy)",
+      "owner": "backend",
+      "status": "planned",
+      "inputs": [
+        "DB Service",
+        "OpenAI connector"
+      ],
+      "outputs": [
+        "homepage APIs"
+      ],
+      "tests": [
+        "smoke test"
+      ]
+    }
+  ],
+  "components": {
+    "frontends": [
+      {
+        "id": "frontend.homepage",
+        "name": "Homepage",
+        "from_draft": true,
+        "note": "Public Website + Concierge Widget + Einstieg ins Buchungstool"
+      },
+      {
+        "id": "frontend.pms",
+        "name": "Front end PMS",
+        "from_draft": true,
+        "note": "Property Management UI (intern)"
+      },
+      {
+        "id": "frontend.admin",
+        "name": "Frontend Admin",
+        "from_draft": true,
+        "note": "Admin UI (intern)"
+      },
+      {
+        "id": "frontend.gis",
+        "name": "GIS (Gast Informationssystem)",
+        "from_draft": true,
+        "note": "Guest Info System UI (z.B. Check-in, House rules, Infos)"
+      }
+    ],
+    "services": [
+      {
+        "id": "svc.db",
+        "name": "DB Service",
+        "from_draft": true,
+        "note": "Zentrale Datenhaltung + Registry + Knowledge + Mapping"
+      },
+      {
+        "id": "svc.hp",
+        "name": "HP Service",
+        "from_draft": true,
+        "note": "Homepage/Content APIs (falls benötigt)"
+      },
+      {
+        "id": "svc.gis",
+        "name": "GIS Service",
+        "from_draft": true,
+        "note": "Guest Info APIs (Templates, Regeln, Links)"
+      },
+      {
+        "id": "svc.pms",
+        "name": "PMS Service",
+        "from_draft": true,
+        "note": "PMS APIs (Bookings, Guests, Tasks)"
+      },
+      {
+        "id": "svc.admin",
+        "name": "Admin Service",
+        "from_draft": true,
+        "note": "Admin APIs (Users, Roles, Audit, Config)"
+      }
+    ],
+    "connectors": [
+      {
+        "id": "connector.openai",
+        "name": "OpenAI API",
+        "from_draft": true,
+        "note": "LLM / Assistenz (Concierge, Text-Tools)"
+      },
+      {
+        "id": "connector.smoobu",
+        "name": "Smoobu API",
+        "from_draft": true,
+        "note": "Availability/Rates/Reservations (Source of truth)"
+      },
+      {
+        "id": "connector.smtp",
+        "name": "E-Mail (SMTP / Sentmail)",
+        "from_draft": true,
+        "note": "Transactional Emails"
+      },
+      {
+        "id": "connector.bank_iso20022",
+        "name": "Account (ISO 20022 CAMT/EBICS)",
+        "from_draft": true,
+        "note": "Zahlungsabgleich / Kontoauszüge"
+      },
+      {
+        "id": "connector.accounting_datev",
+        "name": "Accounting (DATEV …)",
+        "from_draft": true,
+        "note": "Buchhaltung/Export"
+      },
+      {
+        "id": "connector.telephony",
+        "name": "Telefonie (Voice ↔ Text)",
+        "from_draft": true,
+        "note": "Voice-to-text / Text-to-voice"
+      },
+      {
+        "id": "connector.whatsapp",
+        "name": "WhatsApp",
+        "from_draft": true,
+        "note": "Guest messaging / Support"
+      },
+      {
+        "id": "connector.social_push",
+        "name": "Social Media (push only)",
+        "from_draft": true,
+        "note": "FB/Instagram/TikTok publishing"
+      },
+      {
+        "id": "connector.crm_tiger",
+        "name": "CRM System (Tiger CRM)",
+        "from_draft": true,
+        "note": "CRM sync / leads"
+      }
+    ],
+    "notes": [
+      "Aus dem draw.io Draft übernommen; Connections sind initial vorgeschlagen und können angepasst werden.",
+      "Aktuell existiert produktiv: Homepage + Concierge Backend (Node/Express) + Smoobu Connector + OpenAI Connector."
+    ]
+  },
+  "communication": {
+    "primary_protocol": "HTTP/JSON",
+    "auth": {
+      "public_endpoints": "no secret keys in browser; booking uses offerToken or server-side offer computation",
+      "admin_endpoints": "ADMIN_TOKEN header required"
+    },
+    "naming_registry": "docs/PROJECT_REGISTRY.json is canonical for names/endpoints/env vars",
+    "note": "Keep contracts stable; version them if breaking changes occur."
+  }
+}

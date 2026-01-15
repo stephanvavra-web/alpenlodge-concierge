@@ -1,0 +1,375 @@
+--- docs/PROJECT_WISSEN.md (v1)
++++ docs/PROJECT_WISSEN.md (v2)
+@@ -34,6 +34,96 @@
+ 
+ ---
+ 
++## 2.1 System‑Blueprint (Draft aus draw.io, noch ohne feste Connections)
++Stand: 2026-01-15
++
++Du hast im Diagramm folgende Bausteine skizziert (vereinfacht, ohne Platzhalter‑„Item 1/2/3“):
++
++### Frontends
++- **Homepage** – Public Website + Concierge Widget + Einstieg ins Buchungstool
++- **Front end PMS** – Property Management UI (intern)
++- **Frontend Admin** – Admin UI (intern)
++- **GIS (Gast Informationssystem)** – Guest Info System UI (z.B. Check-in, House rules, Infos)
++
++### Services
++- **DB Service** – Zentrale Datenhaltung + Registry + Knowledge + Mapping
++- **HP Service** – Homepage/Content APIs (falls benötigt)
++- **GIS Service** – Guest Info APIs (Templates, Regeln, Links)
++- **PMS Service** – PMS APIs (Bookings, Guests, Tasks)
++- **Admin Service** – Admin APIs (Users, Roles, Audit, Config)
++
++### Connectors (externe Systeme)
++- **OpenAI API** – LLM / Assistenz (Concierge, Text-Tools)
++- **Smoobu API** – Availability/Rates/Reservations (Source of truth)
++- **E-Mail (SMTP / Sentmail)** – Transactional Emails
++- **Account (ISO 20022 CAMT/EBICS)** – Zahlungsabgleich / Kontoauszüge
++- **Accounting (DATEV …)** – Buchhaltung/Export
++- **Telefonie (Voice ↔ Text)** – Voice-to-text / Text-to-voice
++- **WhatsApp** – Guest messaging / Support
++- **Social Media (push only)** – FB/Instagram/TikTok publishing
++- **CRM System (Tiger CRM)** – CRM sync / leads
++
++### Vorschlag für die *erste* sinnvolle Connection‑Logik (änderbar)
++- **Alle Frontends sprechen ausschließlich mit Services** (HTTP/JSON).
++- **Services sprechen mit DB Service** (Zustand, Registry, Mapping, Knowledge).
++- **Externe Systeme nur über Connector‑Schicht** (keine Secrets im Browser).
++
++```mermaid
++flowchart LR
++  subgraph Frontends
++    HP[Homepage]
++    PMSFE[Front end PMS]
++    AdminFE[Frontend Admin]
++    GISFE[GIS (Gast Informationssystem)]
++  end
++
++  subgraph Services
++    HPsvc[HP Service]
++    PMSsvc[PMS Service]
++    GISsvc[GIS Service]
++    Adminsvc[Admin Service]
++    DBsvc[DB Service]
++  end
++
++  subgraph Connectors
++    Smoobu[Smoobu API]
++    OpenAI[OpenAI API]
++    SMTP[SMTP / Sentmail]
++    Bank[ISO 20022 / CAMT / EBICS]
++    Datev[DATEV / Accounting]
++    Tel[Telefonie (Voice↔Text)]
++    WA[WhatsApp]
++    Social[Social (push)]
++    CRM[Tiger CRM]
++  end
++
++  %% Proposed core connections (can be refined)
++  HP --> HPsvc
++  PMSFE --> PMSsvc
++  AdminFE --> Adminsvc
++  GISFE --> GISsvc
++
++  HPsvc --> DBsvc
++  PMSsvc --> DBsvc
++  GISsvc --> DBsvc
++  Adminsvc --> DBsvc
++
++  PMSsvc --> Smoobu
++  HPsvc --> OpenAI
++  GISsvc --> OpenAI
++
++  Adminsvc --> SMTP
++  Adminsvc --> Bank
++  Adminsvc --> Datev
++
++  GISsvc --> WA
++  GISsvc --> Tel
++  HPsvc --> Social
++  PMSsvc --> CRM
++```
++
++> Hinweis: Das Mermaid‑Diagramm ist ein **Vorschlag** (keine endgültige Wahrheit). Es hilft, dass wir beim modularen Ausbau immer denselben „Blick von oben“ haben.
++
+ ## 3) Daten – „Source of Truth“
+ ### 3.1 Wohneinheiten / Units‑Mapping (WICHTIG)
+ - **Definition:** „apartmentId“ = Smoobu Apartment ID.
+@@ -62,6 +152,12 @@
+ ---
+ 
+ ## 5) Arbeitsweise: Atomic / modular
++
++## 5.1 Kommunikations‑Standard (wichtig)
++- **Ein Protokoll:** HTTP/JSON (keine Mischformen pro Modul).
++- **Ein Contract‑Stil:** Jede API hat einen klaren Request/Response‑Contract (im Registry JSON).
++- **Eine Sprache im Code‑Kern:** Node/JS (ESM) ist aktuell gesetzt – optional später TypeScript, aber nicht mischen „wild“.
++
+ Große Änderungen werden vermieden. Wir arbeiten in **kleinen Modulen**:
+ 
+ - Jede Änderung = kleiner Patch mit klarer Funktion.
+--- docs/PROJECT_REGISTRY.json (v1)
++++ docs/PROJECT_REGISTRY.json (v2)
+@@ -1,7 +1,7 @@
+ {
+   "meta": {
+     "name": "alpenlodge-project-registry",
+-    "version": 1,
++    "version": 2,
+     "updated": "2026-01-15",
+     "purpose": "Single source of truth for naming, endpoints, env vars, modules and contracts."
+   },
+@@ -125,6 +125,250 @@
+         "dry-run report",
+         "restore a file if needed"
+       ]
++    },
++    {
++      "id": "svc.db.core",
++      "name": "DB Service core (registry + knowledge + mapping)",
++      "owner": "backend",
++      "status": "planned",
++      "inputs": [
++        "knowledge/*.json",
++        "data/units.json",
++        "docs/PROJECT_REGISTRY.json"
++      ],
++      "outputs": [
++        "normalized domain data",
++        "stable lookups"
++      ],
++      "tests": [
++        "GET /api/debug/knowledge",
++        "unit mapping lookup test"
++      ]
++    },
++    {
++      "id": "connector.smoobu.core",
++      "name": "Smoobu connector (availability/rates/reservations)",
++      "owner": "backend",
++      "status": "active",
++      "inputs": [
++        "SMOOBU_API_KEY",
++        "SMOOBU_CUSTOMER_ID"
++      ],
++      "outputs": [
++        "availability/prices",
++        "reservations"
++      ],
++      "tests": [
++        "POST /concierge/availability",
++        "POST /concierge/book"
++      ]
++    },
++    {
++      "id": "connector.openai.core",
++      "name": "OpenAI connector (LLM completions)",
++      "owner": "backend",
++      "status": "active",
++      "inputs": [
++        "OPENAI_API_KEY"
++      ],
++      "outputs": [
++        "assistant replies"
++      ],
++      "tests": [
++        "basic chat smoke test"
++      ]
++    },
++    {
++      "id": "svc.pms.core",
++      "name": "PMS Service core (domain API)",
++      "owner": "backend",
++      "status": "planned",
++      "inputs": [
++        "DB Service",
++        "Smoobu connector"
++      ],
++      "outputs": [
++        "PMS endpoints"
++      ],
++      "tests": [
++        "contract tests"
++      ]
++    },
++    {
++      "id": "svc.gis.core",
++      "name": "GIS Service core (guest info API)",
++      "owner": "backend",
++      "status": "planned",
++      "inputs": [
++        "DB Service",
++        "knowledge"
++      ],
++      "outputs": [
++        "guest info endpoints"
++      ],
++      "tests": [
++        "contract tests"
++      ]
++    },
++    {
++      "id": "svc.admin.core",
++      "name": "Admin Service core (auth/roles/config)",
++      "owner": "backend",
++      "status": "planned",
++      "inputs": [
++        "DB Service"
++      ],
++      "outputs": [
++        "admin endpoints"
++      ],
++      "tests": [
++        "admin auth tests"
++      ]
++    },
++    {
++      "id": "svc.hp.core",
++      "name": "Homepage Service core (content helpers, concierge proxy)",
++      "owner": "backend",
++      "status": "planned",
++      "inputs": [
++        "DB Service",
++        "OpenAI connector"
++      ],
++      "outputs": [
++        "homepage APIs"
++      ],
++      "tests": [
++        "smoke test"
++      ]
+     }
+-  ]
++  ],
++  "components": {
++    "frontends": [
++      {
++        "id": "frontend.homepage",
++        "name": "Homepage",
++        "from_draft": true,
++        "note": "Public Website + Concierge Widget + Einstieg ins Buchungstool"
++      },
++      {
++        "id": "frontend.pms",
++        "name": "Front end PMS",
++        "from_draft": true,
++        "note": "Property Management UI (intern)"
++      },
++      {
++        "id": "frontend.admin",
++        "name": "Frontend Admin",
++        "from_draft": true,
++        "note": "Admin UI (intern)"
++      },
++      {
++        "id": "frontend.gis",
++        "name": "GIS (Gast Informationssystem)",
++        "from_draft": true,
++        "note": "Guest Info System UI (z.B. Check-in, House rules, Infos)"
++      }
++    ],
++    "services": [
++      {
++        "id": "svc.db",
++        "name": "DB Service",
++        "from_draft": true,
++        "note": "Zentrale Datenhaltung + Registry + Knowledge + Mapping"
++      },
++      {
++        "id": "svc.hp",
++        "name": "HP Service",
++        "from_draft": true,
++        "note": "Homepage/Content APIs (falls benötigt)"
++      },
++      {
++        "id": "svc.gis",
++        "name": "GIS Service",
++        "from_draft": true,
++        "note": "Guest Info APIs (Templates, Regeln, Links)"
++      },
++      {
++        "id": "svc.pms",
++        "name": "PMS Service",
++        "from_draft": true,
++        "note": "PMS APIs (Bookings, Guests, Tasks)"
++      },
++      {
++        "id": "svc.admin",
++        "name": "Admin Service",
++        "from_draft": true,
++        "note": "Admin APIs (Users, Roles, Audit, Config)"
++      }
++    ],
++    "connectors": [
++      {
++        "id": "connector.openai",
++        "name": "OpenAI API",
++        "from_draft": true,
++        "note": "LLM / Assistenz (Concierge, Text-Tools)"
++      },
++      {
++        "id": "connector.smoobu",
++        "name": "Smoobu API",
++        "from_draft": true,
++        "note": "Availability/Rates/Reservations (Source of truth)"
++      },
++      {
++        "id": "connector.smtp",
++        "name": "E-Mail (SMTP / Sentmail)",
++        "from_draft": true,
++        "note": "Transactional Emails"
++      },
++      {
++        "id": "connector.bank_iso20022",
++        "name": "Account (ISO 20022 CAMT/EBICS)",
++        "from_draft": true,
++        "note": "Zahlungsabgleich / Kontoauszüge"
++      },
++      {
++        "id": "connector.accounting_datev",
++        "name": "Accounting (DATEV …)",
++        "from_draft": true,
++        "note": "Buchhaltung/Export"
++      },
++      {
++        "id": "connector.telephony",
++        "name": "Telefonie (Voice ↔ Text)",
++        "from_draft": true,
++        "note": "Voice-to-text / Text-to-voice"
++      },
++      {
++        "id": "connector.whatsapp",
++        "name": "WhatsApp",
++        "from_draft": true,
++        "note": "Guest messaging / Support"
++      },
++      {
++        "id": "connector.social_push",
++        "name": "Social Media (push only)",
++        "from_draft": true,
++        "note": "FB/Instagram/TikTok publishing"
++      },
++      {
++        "id": "connector.crm_tiger",
++        "name": "CRM System (Tiger CRM)",
++        "from_draft": true,
++        "note": "CRM sync / leads"
++      }
++    ],
++    "notes": [
++      "Aus dem draw.io Draft übernommen; Connections sind initial vorgeschlagen und können angepasst werden.",
++      "Aktuell existiert produktiv: Homepage + Concierge Backend (Node/Express) + Smoobu Connector + OpenAI Connector."
++    ]
++  },
++  "communication": {
++    "primary_protocol": "HTTP/JSON",
++    "auth": {
++      "public_endpoints": "no secret keys in browser; booking uses offerToken or server-side offer computation",
++      "admin_endpoints": "ADMIN_TOKEN header required"
++    },
++    "naming_registry": "docs/PROJECT_REGISTRY.json is canonical for names/endpoints/env vars",
++    "note": "Keep contracts stable; version them if breaking changes occur."
++  }
+ }
