@@ -1,0 +1,111 @@
+{
+  "meta": {
+    "generated": "2026-01-11",
+    "policy": "No inventions. Recommendations only from knowledge base.",
+    "notes": [
+      "Some Alpenlodge amenities are operator-provided (24/7)."
+    ]
+  },
+  "alpenlodge": {
+    "amenities_operator": [
+      "24/7 Fitnessraum",
+      "24/7 Infrarot-Sauna",
+      "Waschmaschinen & Trockner",
+      "24/7 Snackautomat"
+    ],
+    "amenities_verified_sources": [
+      {
+        "item": "Fitnessraum & Infrarotsauna als Ausstattung erwähnt",
+        "source": "turn1search11"
+      },
+      {
+        "item": "Unterkunftseintrag mit Bildern (u.a. Fitnessraum)",
+        "source": "turn1search15"
+      }
+    ]
+  },
+  "official_portals": [
+    {
+      "name": "Kufsteinerland Veranstaltungskalender",
+      "url": "https://www.kufstein.com/de/kultur/veranstaltungskalender.html"
+    },
+    {
+      "name": "Kitzbühel Veranstaltungen",
+      "url": "https://www.kitzbuehel.com/veranstaltungen/"
+    },
+    {
+      "name": "Schliersee – Unsere Seen",
+      "url": "https://www.schliersee.de/sommer/schliersee-erleben/unsere-seen/"
+    },
+    {
+      "name": "Tegernsee-Schliersee Touren-Datenbank",
+      "url": "https://www.tegernsee-schliersee.de/touren-datenbank"
+    },
+    {
+      "name": "Bayrischzell Veranstaltungskalender",
+      "url": "https://www.bayrischzell.de/veranstaltungskalender"
+    },
+    {
+      "name": "116117 Patienten-Navi",
+      "url": "https://www.116117.de/de/patienten-navi.php"
+    },
+    {
+      "name": "BLAK Notdienstsuche Bayern",
+      "url": "https://www.blak.de/notdienst/oeffentliche-notdienstsuche"
+    }
+  ],
+  "highlights": {
+    "water": [
+      {
+        "name": "Naturbadesee Landl",
+        "url": "https://www.naturbadesee-landl.at/",
+        "area": "Thiersee/Landl"
+      },
+      {
+        "name": "Park Strandbad Schliersee",
+        "url": "https://www.schliersee.de/sommer/schliersee-erleben/unsere-seen/",
+        "area": "Schliersee"
+      }
+    ],
+    "wellness_pools": [
+      {
+        "name": "Hallo Du Ebbs (Sauna/Erlebnisbad)",
+        "url": "https://www.kufstein.com/en/ebbs/info/sauna-funarena-hallo-du.html"
+      },
+      {
+        "name": "monte mare Schliersee (Wellness)",
+        "url": "https://www.monte-mare.de/schliersee/"
+      },
+      {
+        "name": "Innsola Kiefersfelden (Indoor pool)",
+        "url": "https://www.kufstein.com/en/kiefersfelden/info/indoor-pool-innsola.html"
+      }
+    ],
+    "ski": [
+      {
+        "name": "Skiparadies Sudelfeld",
+        "url": "https://www.sudelfeld.de/"
+      },
+      {
+        "name": "Skigebiet Wendelstein",
+        "url": "https://www.wendelsteinbahn.de/skigebiet-wendelstein-2"
+      }
+    ],
+    "rodel": [
+      {
+        "name": "Winter-Rodelbahn Oberaudorf-Hocheck",
+        "url": "https://hocheck.com/winter-rodelbahn/"
+      }
+    ],
+    "family": [
+      {
+        "name": "Schliersbergalm (Sommerrodelbahn/Adventure Golf)",
+        "url": "https://www.schliersbergalm.de/"
+      },
+      {
+        "name": "Markus Wasmeier Freilichtmuseum",
+        "url": "https://www.wasmeier.de/"
+      }
+    ]
+  }
+}

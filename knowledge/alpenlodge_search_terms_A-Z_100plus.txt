@@ -1,0 +1,193 @@
+ALPENLODGE – Suchbegriffe A–Z (mind. 100)
+Stand: 2026-01-12
+
+A: Alpenlodge
+A: Anreise
+A: Abreise
+A: Apotheke
+A: Arzt
+A: Ausflug
+B: Bäckerei
+B: Badesee
+B: Bergbahn
+B: Busfahrplan
+B: Bahnhof
+B: Bikeverleih
+C: Café
+C: Camping
+C: Carsharing
+C: Chillarea
+C: Coworking
+C: Curling
+D: Datenschutz
+D: Drogerie
+D: Dorfzentrum
+D: Disco
+D: Dienstleistungen
+D: Direktbus
+E: E-Ladestation
+E: E-Bike
+E: Einkauf
+E: Erlebnisbad
+E: Eislaufen
+E: Events
+F: Familienprogramm
+F: Fahrradverleih
+F: Fitnessstudio
+F: Feuerwehr
+F: Fischteich
+F: Frühstück
+G: Gästekarte
+G: Gondel
+G: Google Maps
+G: Gasthof
+G: Gletscher
+G: Gourmet
+H: Hallenbad
+H: Hausarzt
+H: Hunde erlaubt
+H: Hütten
+H: Heimatmuseum
+H: Hochseilgarten
+I: Indoor Spielplatz
+I: Infrarotkabine
+I: Infozentrum
+I: Italienisches Restaurant
+I: Imbiss
+I: Internet Störung
+J: Jugendprogramm
+J: Jausenstation
+J: Jahreskarte
+J: Jodelkurs
+J: Joggingstrecke
+K: Kufsteinerland
+K: Kufstein
+K: Kinderarzt
+K: Kindergarten
+K: Kletterhalle
+K: Klettersteig
+K: Kirche
+L: Landl
+L: Langlauf
+L: Lebensmittel
+L: Loipe
+L: Liftkarten
+L: Lawinenlage
+M: Museum
+M: Massage
+M: Mountainbike
+M: Minigolf
+M: Maut
+M: Metzgerei
+N: Naturbadesee
+N: Notdienst
+N: Notruf
+N: Nachtrodeln
+N: Nahversorgung
+N: Nordic Walking
+O: Öffnungszeiten
+O: Ortsplan
+O: Outdoor Spielplatz
+O: OGV Tourismus
+O: Obstladen
+P: Parkplatz
+P: Polizei
+P: Post
+P: Pferdekutsche
+P: Pizzeria
+P: Pumptrack
+Q: Qualitätssiegel
+Q: QR Code
+Q: Quartier
+Q: Quellwasser
+R: Rodelbahn
+R: Restaurant
+R: Reitstall
+R: RegioBus
+R: Rundwanderweg
+R: Rettung
+S: Skigebiet
+S: Skipass
+S: Skischule
+S: Skiverleih
+S: Schneelage
+S: Sauna
+S: Supermarkt
+T: Thiersee
+T: Taxi
+T: Tourismusverband
+T: Therme
+T: Tischreservierung
+T: Trail Map
+U: Unterkunft
+U: Unfallarzt
+U: Urlaub mit Hund
+U: Umweltzone
+U: Uferweg
+V: Veranstaltung
+V: Verleih
+V: Verkehr
+V: Versicherung
+V: Vogelpark
+V: Vulkanland (Testkeyword)
+W: Wandern
+W: Winterwandern
+W: Wellness
+W: Wetter
+W: Webcams
+W: Wochenmarkt
+W: Wasserfall
+X: X-Trail
+X: X-Alps (Event)
+X: X-Mas Markt (Weihnachtsmarkt)
+Y: Yoga
+Y: Youth Camp
+Y: Ybbstal (Testkeyword)
+Z: Zahnarzt
+Z: Zugverbindung
+Z: Zoo
+Z: Zustiegspunkt
+Z: Zirmweg
+Z: Zimmerpreise
+
+BONUS (zusätzliche Pflicht-Keywords):
+Kinderspielzimmer
+Spielplatz
+Brötchenservice
+Snackautomat
+Solarium
+Skitour
+Schneeschuh
+Eisklettern
+Routenplaner
+Parken kostenlos
+Parken gebührenpflichtig
+Wochenprogramm
+Ferienprogramm
+Kinderbetreuung
+Babysitter
+Schlechtwetterprogramm
+Ausrüstung mieten
+Skibus
+Nightliner
+Kino
+Bowling
+Escape Room
+Thermenwelt
+Schwimmbad
+Badewelt
+Bikepark
+MTB Trail
+Kletterpark
+Schwimmschule
+Angelkarte
+Bootsverleih
+SUP Verleih
+Badestelle
+Hundewiese
+Tierarzt
+Tierbedarf
+Ladekabel Typ2
+Bankomat
+Geldautomat
+Wechselstube

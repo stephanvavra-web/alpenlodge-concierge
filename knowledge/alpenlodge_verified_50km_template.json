@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "version": "2026-01-12-50km-v1",
+    "language": "de",
+    "generated_at": "2026-01-12T00:00:00+01:00",
+    "maintainer": "<NAME/TEAM>",
+    "rules": {
+      "default_radius_km": 50,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "no_old_brand_name": true,
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“ und biete ggf. offizielle Verzeichnisse aus sources{} an."
+    },
+    "notes": [
+      "Diese Datei ist eine Vorlage. Bitte items[] mit verifizierten Einträgen füllen.",
+      "Jeder Eintrag in items[] benötigt lat/lon (WGS84), url (http/https) und last_verified_at (YYYY-MM-DD).",
+      "INTERNAL:* ist keine URL und darf niemals als Link ausgegeben werden."
+    ]
+  },
+  "alpenlodge": {
+    "name": "ALPENLODGE",
+    "timezone": "Europe/Vienna",
+    "center": {
+      "lat": null,
+      "lon": null
+    },
+    "amenities": [
+      {
+        "type": "amenity",
+        "name": "<AUSSTATTUNG-ITEM>",
+        "details": "<KURZE-DETAILS>",
+        "source": "INTERNAL:owner-confirmed",
+        "last_verified_at": "YYYY-MM-DD"
+      }
+    ]
+  },
+  "sources": {
+    "tourism_official": {
+      "label": "<OFFIZIELLER TOURISMUSVERBAND / VERZEICHNIS>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "general"
+    },
+    "restaurants": {
+      "label": "<OFFIZIELLES GASTRO-VERZEICHNIS>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "restaurants"
+    },
+    "ski": {
+      "label": "<OFFIZIELLE SKI-INFO (BETREIBER/VERZEICHNIS)>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "ski"
+    },
+    "events": {
+      "label": "<OFFIZIELLER EVENT-KALENDER>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "events"
+    },
+    "medical": {
+      "label": "<OFFIZIELLES GESUNDHEITS-VERZEICHNIS>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "medical"
+    }
+  },
+  "items": []
+}

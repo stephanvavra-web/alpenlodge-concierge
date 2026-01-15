@@ -1,6 +1,6 @@
 {
   "meta": {
-    "version": "2026-01-11-v8",
+    "version": "2026-01-13-v9",
     "language": "de",
     "rules": {
       "default_radius_km": 35,
@@ -8,7 +8,8 @@
       "always_show_source": true,
       "no_old_brand_name": true,
       "when_uncertain": "Nicht behaupten – stattdessen passende offizielle Quelle/Verzeichnis verlinken."
-    }
+    },
+    "generated_at": "2026-01-13T11:01:26+00:00"
   },
   "alpenlodge": {
     "name": "Alpenlodge",
@@ -58,6 +59,66 @@
         "name": "E‑Auto‑Ladestation",
         "details": "vor Ort (je nach Verfügbarkeit)",
         "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Solarium",
+        "details": "Solarium vor Ort.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "service",
+        "name": "Brötchenservice",
+        "details": "Brötchenservice verfügbar.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "policy",
+        "name": "Hunde erlaubt",
+        "details": "Hunde sind erlaubt (Gebühr siehe Hausinfos).",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "guest_card",
+        "name": "KufsteinerlandCard",
+        "details": "KufsteinerlandCard für Gäste (Details siehe Hausinfos).",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "highlight",
+        "name": "Naturbadesee Landl",
+        "details": "Naturbadesee Landl ca. 450 m von der Alpenlodge.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Hund",
+        "details": "Hund: 15 € pro Nacht.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Kurtaxe",
+        "details": "Kurtaxe: 3,50 € pro Person/Nacht ab 15 Jahren.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Zusatzperson",
+        "details": "Zusatzperson: ca. 24 € pro Nacht.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "info",
+        "name": "Babybett",
+        "details": "Babybett: gratis.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "info",
+        "name": "AGB",
+        "details": "AGB-Basis: österreichische Hotel‑AGB.",
+        "source": "INTERNAL:project-knowledge"
       }
     ]
   },

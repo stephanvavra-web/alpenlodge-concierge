@@ -1,5 +1,5 @@
 # Alpenlodge Concierge – Wissens-DB Setup (Kurz-Anleitung)
-Stand: 2026-01-13
+Stand: 2026-01-14
 
 Du hast eine ALL-IN-ONE Datei (Blocks 10–180). Darin sind u.a. enthalten:
 - Scan-Configs (Center/Radius/Kategorien)
@@ -26,9 +26,17 @@ Output: alpenlodge_verified_50km_osm_dump.json
 python3 validate_50km_json.py alpenlodge_verified_50km_osm_dump.json
 ```
 
-## 4) In Concierge Repo einhängen
-- Kopiere die JSON in den Repo-Ordner `knowledge/`
-- Danach Deploy
-- Prüfen: GET /api/debug/knowledge (counts)
+## 4) In Concierge Repo einhängen (WICHTIG: alle JSONs werden geladen)
+- Kopiere **alle verifizierten Knowledge-JSONs** in den Repo-Ordner `knowledge/` (**Dateiname egal**).
+  - Beispiele: `verified.json`, `verified_updated.json`, `kufsteinerland_verified.json`, `concierge_knowledge_de_verified.json`, ...
+- Der Backend-Server lädt beim Start automatisch **alle `*.json`** aus `knowledge/`, **die wie Knowledge aussehen** (Schema wird erkannt).
+  - Reine Tooling/Config-JSONs (Scan-Config, Templates, …) werden **ignoriert** und erscheinen unter `skipped` im Debug-Endpunkt.
+- Deploy (Render / Node)
+- Prüfen:
+  - GET `/api/debug/knowledge` → `files[]` listet die tatsächlich geladenen Dateien + Category-Counts
 
-Wichtig: Im Concierge-Reply niemals Quellen/URLs ausgeben – nur über links[] (Frontend zeigt 'Infos & Links').
+### Optional: anderes Knowledge-Verzeichnis / Single-File
+- `KNOWLEDGE_FILE` kann auf **einen Ordner** (recommended) oder **eine einzelne JSON-Datei** zeigen.
+  - Wenn nicht gesetzt: Default ist `<repo>/knowledge` (Ordner).
+
+Wichtig: Im Concierge-Reply niemals Quellen/URLs ausgeben – nur über `links[]` (Frontend zeigt „Infos & Links“).

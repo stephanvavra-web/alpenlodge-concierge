@@ -1,0 +1,156 @@
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block110-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(110): keywords[100..109] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Restaurant",
+    "Reitstall",
+    "RegioBus",
+    "Rundwanderweg",
+    "Rettung",
+    "Skigebiet",
+    "Skipass",
+    "Skischule",
+    "Skiverleih",
+    "Schneelage"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
