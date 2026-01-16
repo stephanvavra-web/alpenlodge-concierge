@@ -972,8 +972,16 @@ function buildStayOptionList(data, { guests, unitFilter, categoryFilter } = {}) 
     if (!Number.isFinite(id)) continue;
 
     const unit = findUnitByApartmentId(id);
-    if (unitFilter && unit && foldText(unit.name) !== foldText(unitFilter)) continue;
-    if (categoryFilter && unit && unit.category !== categoryFilter) continue;
+
+    // If a filter is active, require unit mapping (prevents wrong category matches)
+    if (unitFilter) {
+      if (!unit) continue;
+      if (foldText(unit.name) !== foldText(unitFilter)) continue;
+    }
+    if (categoryFilter) {
+      if (!unit) continue;
+      if (unit.category !== categoryFilter) continue;
+    }
 
     // Respect max occupancy if we know it
     if (unit?.max_persons && Number.isFinite(Number(guests)) && Number(guests) > Number(unit.max_persons)) continue;
@@ -982,7 +990,8 @@ function buildStayOptionList(data, { guests, unitFilter, categoryFilter } = {}) 
 
     opts.push({
       apartmentId: id,
-      name: unit?.name || `Apartment ${id}`,
+      unit_id: unit?.unit_id ?? null,
+      name: unit?.name || "Apartment",
       category: unit?.category || null,
       m2: unit?.m2 ?? null,
       max_persons: unit?.max_persons ?? null,
@@ -1050,7 +1059,7 @@ function bookingActionsForResults(opts, locale) {
   top.forEach((o, i) => {
     actions.push({
       type: "postback",
-      label: `${i + 1}) ${o.name}`,
+      label: `${i + 1}) ${o.name}${o.unit_id ? ` (Unit ${o.unit_id})` : ""}`,
       message: String(i + 1),
       kind: i === 0 ? "primary" : undefined,
     });
@@ -1217,7 +1226,7 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
     const money = formatMoney(selected.price, selected.currency);
 
     const lines = [];
-    lines.push(`**${selected.name}**${meta ? ` (${meta})` : ""}`);
+    lines.push(`**${selected.name}${selected.unit_id ? ` (Unit ${selected.unit_id})` : ""}**${meta ? ` (${meta})` : ""}`);
     lines.push(isEn
       ? `Dates: **${arrival}** → **${departure}**${n ? ` (${n} nights)` : ""}`
       : `Zeitraum: **${isoToDE(arrival)}** – **${isoToDE(departure)}**${n ? ` (${n} Nächte)` : ""}`);
@@ -1267,7 +1276,7 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
       .filter(Boolean)
       .join(" · ");
     const money = formatMoney(o.price, o.currency);
-    lines.push(`${i + 1}) **${o.name}**${meta ? ` (${meta})` : ""} – **${money}**`);
+    lines.push(`${i + 1}) **${o.name}${o.unit_id ? ` (Unit ${o.unit_id})` : ""}**${meta ? ` (${meta})` : ""} – **${money}**`);
   });
 
   if (opts.length > 8) {
@@ -1653,6 +1662,25 @@ app.get("/api/debug/knowledge", (req, res) => {
     categories: counts,
     directories: Array.isArray(k.directories) ? k.directories.length : 0,
     hasAlpenlodge: Boolean(k.alpenlodge),
+  });
+});
+
+// Units mapping debug (confirms data/units.json is present & parsed)
+app.get("/api/debug/units", (req, res) => {
+  const units = loadUnits();
+  res.json({
+    ok: true,
+    count: Array.isArray(units) ? units.length : 0,
+    sample: Array.isArray(units)
+      ? units.slice(0, 25).map((u) => ({
+          unit_id: u.unit_id ?? null,
+          name: u.name || null,
+          category: u.category || null,
+          max_persons: u.max_persons ?? null,
+          m2: u.m2 ?? null,
+          details_url: u.details_url || null,
+        }))
+      : [],
   });
 });
 
