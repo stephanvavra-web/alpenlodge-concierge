@@ -1355,8 +1355,8 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
   }
 
   if (!shown.length) {
-    lines.push("Dazu habe ich aktuell keine verifizierten Einträge in meiner Wissenssammlung.");
-    lines.push("Im Block **Infos & Links** findest du passende Link‑Tipps.");
+    lines.push("Dazu habe ich aktuell keine passenden Einträge.");
+    lines.push("Hier sind ein paar hilfreiche Links dazu:");
   } else {
     if (sessionId) {
       const sess = getSession(sessionId) || { ts: Date.now() };
@@ -1367,9 +1367,8 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
 
     shown.forEach((it, i) => {
       const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
-      const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? " — intern bestätigt" : "";
       const sum = stripUrlsFromText(it.summary);
-      lines.push(`${i + 1}) **${it.name}**${dist}${internal}`);
+      lines.push(`${i + 1}) **${it.name}**${dist}`);
       if (sum) lines.push(`   ${sum}`);
     });
 
@@ -2008,6 +2007,8 @@ async function conciergeChatHandler(req, res) {
       const sys = [
         "Du bist der Alpenlodge Concierge.",
         "Antworten kurz, freundlich und konkret.",
+        "Keine Meta-Kommentare: vermeide Wörter wie \"verifiziert\", \"Positivliste\", \"Quelle\", \"laut\".",
+        "Wenn der User einen Witz möchte: gerne kurz & passend (ohne beleidigende Inhalte).",
         "Wenn die Frage nach Verfügbarkeit/Preis klingt, frage nach: Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer.",
         "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
         `Seite: ${page}. Locale: ${locale}.`,
@@ -2036,11 +2037,9 @@ async function conciergeChatHandler(req, res) {
         const it = list[sel - 1];
         if (it) {
           const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
-          const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? "intern bestätigt" : "";
           const replyLines = [
             `**${it.name}${dist}**`,
             it.summary ? stripUrlsFromText(it.summary) : "",
-            internal ? `(${internal})` : "",
           ].filter(Boolean);
           const links = [];
           const u = pickFirstHttpUrl(it.url, it.sourceUrl);
@@ -2100,7 +2099,8 @@ async function conciergeChatHandler(req, res) {
     const hardRules = [
       "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
       "Wenn du etwas nicht sicher weißt, sag das ehrlich und biete passende Links an (falls vorhanden).",
-      "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus dem verifizierten Knowledge (inkl. Links). Keine Rückfragen.",
+      "Keine Meta-Kommentare: benutze keine Wörter wie \"verifiziert\", \"Positivliste\", \"Quelle\", \"laut\".",
+      "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus der Knowledge-Liste (inkl. Links). Keine Rückfragen.",
     ].join(" ");
     const instructions = `${hardRules} ${baseSys}`.trim();
     const input = messages

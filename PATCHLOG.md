@@ -93,3 +93,19 @@
 - al-concierge.js sha256: `ef32cd40a4691b44ac6ad10b2be071306240a3b2a62c73f7a1ab7ef90166c216`
 - tests/smoke.mjs sha256: `30fd18eef5196f967a8ee26c309eba33a546ab05f7c42c31acb19ce1219a9548`
 
+## v29 — 2026-01-14 (Knowledge: alle JSONs aktiv)
+
+**Base-State**
+- concierge-server.mjs sha256: `c5061710e52b86d1e2651b168bd767dcf076c6117a9fbf9dc2dd40c96661755a`
+
+**Changes (Backend)**
+- **Knowledge Loader**: `KNOWLEDGE_FILE` kann Ordner **oder** Datei sein; Default ist der Ordner `knowledge/`.
+  - Im Ordner werden **alle `*.json`** geladen (Dateiname egal), Schema wird erkannt, Inhalte werden **gemerged + dedupliziert**.
+- **Neues Knowledge-Schema** unterstützt: `highlights` + `official_portals` (z.B. `concierge_knowledge_de_verified.json`).
+- **Directories**: `sources` mit mehreren URLs werden sauber aufgesplittet (kein „URL1 | URL2“ Link mehr).
+- **Debug**: `/api/debug/knowledge` liefert `mode/base/files[]/skipped[]` für klare Kontrolle, was wirklich aktiv ist.
+- **Kategorie-Fix**: Wasser/Wellness vereinheitlicht auf `lakes_pools_wellness`, plus zusätzliche Kategorien (`activities`, `family`, `rental`) in Erkennung & Titelmapping.
+- **Fallback-Directories** zeigen auch Einträge mit Kategorie `all` bzw. ohne Kategorie (nur wenn keine Items gefunden wurden).
+
+**New Hash**
+- concierge-server.mjs sha256: `31e7eb623991b4f0315f7cef2b06e9341c5db70f7cc517b4084fe52dc2e11c4d`
