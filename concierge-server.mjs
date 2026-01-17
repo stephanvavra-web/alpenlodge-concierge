@@ -1349,14 +1349,22 @@ function availabilityCacheSet(key, value, ttlMs = 30 * 1000) {
   cache.availability.set(key, { ts: now(), ttlMs, value });
 }
 
-async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 15000 } = {}) {
+function getSmoobuTimeoutMs(defaultMs = 25000) {
+  const raw = Number(process.env.SMOOBU_TIMEOUT_MS || defaultMs);
+  if (!Number.isFinite(raw)) return defaultMs;
+  // Safety clamp (Render + Smoobu should not hang forever)
+  return Math.max(5000, Math.min(raw, 60000));
+}
+
+async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs } = {}) {
   if (!SMOOBU_API_KEY) {
     const e = new Error("SMOOBU_API_KEY missing");
     e.status = 500;
     throw e;
   }
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
+  const effectiveTimeoutMs = Number.isFinite(timeoutMs) ? timeoutMs : getSmoobuTimeoutMs();
+  const t = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
   try {
     const headers = { "Api-Key": SMOOBU_API_KEY };

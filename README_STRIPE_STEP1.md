@@ -33,6 +33,7 @@ Wenn `DATABASE_URL` fehlt oder die DB-Verbindung nicht klappt, faellt der Server
 > In-Memory ist fuer Stripe/Payments nicht geeignet (verliert Daten beim Restart) – fuer Tests ok.
 
 Optional:
+- `SMOOBU_TIMEOUT_MS` (Default: `25000`) – Timeout fuer Smoobu API Calls (Availability/Booking).
 - `BOOKING_QUOTE_TTL_MIN` (Default: `15`) – Lebensdauer der Quote
 - `PGSSLMODE=require` oder `DB_SSL=true` (falls deine DB SSL verlangt)
 
