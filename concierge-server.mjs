@@ -1594,11 +1594,69 @@ async function publicBookHandler(req, res) {
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
     // Some Smoobu setups (incl. booking tool validation settings) require
     // address/country/phone for direct bookings.
-    // We keep these as simple strings (frontend can provide a single address line).
-    const address = typeof body.address === "string" ? body.address.trim() : "";
+    //
+    // IMPORTANT: In the Smoobu API, "address" is an object, not a string:
+    //   address: { street, postalCode, location }, plus top-level "country".
+    // We accept multiple input shapes for compatibility (frontend should send the object).
     const country = typeof body.country === "string" ? body.country.trim() : "";
     const language = typeof body.language === "string" ? body.language.trim() : "de";
     const notice = typeof body.notice === "string" ? body.notice.trim() : "";
+
+    const addressObj = (() => {
+      // Preferred: address as object
+      if (body.address && typeof body.address === "object") {
+        const street = typeof body.address.street === "string" ? body.address.street.trim() : "";
+        const postalCode = typeof body.address.postalCode === "string" ? body.address.postalCode.trim() : "";
+        const location = typeof body.address.location === "string" ? body.address.location.trim() : "";
+        return { street, postalCode, location };
+      }
+
+      // Legacy: separate fields
+      const street = typeof body.street === "string" ? body.street.trim() : "";
+      const postalCode =
+        typeof body.postalCode === "string"
+          ? body.postalCode.trim()
+          : typeof body.zip === "string"
+            ? body.zip.trim()
+            : "";
+      const location =
+        typeof body.location === "string"
+          ? body.location.trim()
+          : typeof body.city === "string"
+            ? body.city.trim()
+            : "";
+
+      if (street || postalCode || location) {
+        return { street, postalCode, location };
+      }
+
+      // Legacy: single line address string e.g. "Street 1, 6335 Thiersee"
+      const line = typeof body.address === "string" ? body.address.trim() : "";
+      if (!line) return { street: "", postalCode: "", location: "" };
+
+      const parts = line
+        .split(",")
+        .map((p) => String(p || "").trim())
+        .filter(Boolean);
+
+      const street2 = parts[0] || line;
+      const rest = parts.slice(1).join(" ").trim();
+
+      let postal2 = "";
+      let loc2 = "";
+
+      if (rest) {
+        const m = rest.match(/^(\d{3,10})\s+(.*)$/);
+        if (m) {
+          postal2 = m[1];
+          loc2 = (m[2] || "").trim();
+        } else {
+          loc2 = rest;
+        }
+      }
+
+      return { street: street2, postalCode: postal2, location: loc2 };
+    })();
 
     // Guest validation (frontend should already enforce this, but keep backend strict).
     const missing = [];
@@ -1606,14 +1664,16 @@ async function publicBookHandler(req, res) {
     if (!lastName) missing.push("lastName");
     if (!email) missing.push("email");
     if (!phone) missing.push("phone");
-    if (!address) missing.push("address");
+    if (!addressObj.street) missing.push("address.street");
+    if (!addressObj.postalCode) missing.push("address.postalCode");
+    if (!addressObj.location) missing.push("address.location");
     if (!country) missing.push("country");
 
     if (missing.length) {
       return res.status(400).json({
         error: "missing_guest_fields",
         missing,
-        hint: "Provide guest fields: firstName, lastName, email, phone, address, country.",
+        hint: "Provide guest fields: firstName, lastName, email, phone, address{street,postalCode,location}, country.",
       });
     }
 
@@ -1669,7 +1729,7 @@ async function publicBookHandler(req, res) {
       lastName,
       email,
       phone,
-      address,
+      address: addressObj,
       country,
       language,
 
