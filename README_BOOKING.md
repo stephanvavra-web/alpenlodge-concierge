@@ -14,6 +14,7 @@ Empfohlen/neu:
 - `BOOKING_TOKEN_SECRET` (z.B. `openssl rand -hex 32`) – signiert offerTokens (10 Minuten gültig)
 - `SMOOBU_CHANNEL_ID` (Default `70` = Homepage, Alternative `13` = Direct booking)
 - `BOOKING_RATE_LIMIT_PER_MIN` (Default `30`)
+- `SMOOBU_TIMEOUT_MS` (Default `25000`) – Timeout fuer Smoobu API Calls (Availability/Booking)
 
 Admin-only (falls du /api/smoobu/* write endpoints nutzt):
 - `ADMIN_TOKEN` (z.B. ebenfalls `openssl rand -hex 32`)
