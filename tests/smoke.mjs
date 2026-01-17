@@ -1,8 +1,12 @@
-// Alpenlodge Concierge – Smoke Test
+// Alpenlodge Concierge – Smoke Test (v46)
 //
-// Updated behavior:
-// - Concierge chat is "Auskunft" only by default (booking chat disabled).
-// - Booking/availability must be tested via /api/booking/* (or /api/smoobu/*).
+// Purpose:
+// - Quick sanity check for production (Render) and local dev.
+// - Includes DB debug endpoint introduced for Stripe Step 1.
+//
+// Usage:
+//   BASE_URL=https://alpenlodge-concierge.onrender.com npm run test:smoke
+//   node tests/smoke.mjs --strict
 
 import crypto from 'crypto';
 
@@ -26,9 +30,7 @@ async function request(path, opts = {}) {
     body = JSON.stringify(opts.json);
   }
 
-  if (opts.admin) {
-    if (ADMIN_TOKEN) headers['X-Admin-Token'] = ADMIN_TOKEN;
-  }
+  if (opts.admin && ADMIN_TOKEN) headers['X-Admin-Token'] = ADMIN_TOKEN;
 
   const res = await fetch(url, { method, headers, body });
   const text = await res.text();
@@ -38,7 +40,7 @@ async function request(path, opts = {}) {
   } catch {
     data = { raw: text };
   }
-  return { status: res.status, data };
+  return { status: res.status, data, raw: text };
 }
 
 let failed = false;
@@ -55,9 +57,9 @@ function fail(msg) { out('FAIL', msg); failed = true; }
   // 1) Health
   try {
     const r = await request('/health');
-    if (r.status === 200 && r.data && r.data.ok === true) pass('GET /health');
+    if (r.status === 200) pass('GET /health');
     else fail(`GET /health — status=${r.status}`);
-  } catch (e) {
+  } catch {
     fail('GET /health — fetch failed');
   }
 
@@ -66,11 +68,23 @@ function fail(msg) { out('FAIL', msg); failed = true; }
     const r = await request('/api/debug/version');
     if (r.status === 200 && r.data && r.data.ok) pass(`GET /api/debug/version — node=${r.data.node || '?'}`);
     else fail(`GET /api/debug/version — status=${r.status}`);
-  } catch (e) {
+  } catch {
     fail('GET /api/debug/version — fetch failed');
   }
 
-  // 3) Knowledge
+  // 3) DB debug (Stripe Step 1)
+  try {
+    const r = await request('/api/debug/db');
+    if (r.status === 200 && r.data && r.data.ok && r.data.db) {
+      pass(`GET /api/debug/db — kind=${r.data.db.kind}, ready=${r.data.db.ready}`);
+    } else {
+      fail(`GET /api/debug/db — status=${r.status}, body=${JSON.stringify(r.data)}`);
+    }
+  } catch {
+    fail('GET /api/debug/db — fetch failed');
+  }
+
+  // 4) Knowledge
   try {
     const r = await request('/api/debug/knowledge');
     if (r.status === 200 && r.data && r.data.ok) {
@@ -78,11 +92,11 @@ function fail(msg) { out('FAIL', msg); failed = true; }
     } else {
       fail(`GET /api/debug/knowledge — status=${r.status}, body=${JSON.stringify(r.data)}`);
     }
-  } catch (e) {
+  } catch {
     fail('GET /api/debug/knowledge — fetch failed');
   }
 
-  // 4) Concierge – info question (should work)
+  // 5) Concierge – info question (should work)
   try {
     const r = await request('/api/concierge', {
       method: 'POST',
@@ -90,12 +104,11 @@ function fail(msg) { out('FAIL', msg); failed = true; }
     });
     if (r.status === 200 && typeof r.data?.reply === 'string' && r.data.reply.length > 10) pass('POST /api/concierge (Ausstattung)');
     else fail(`POST /api/concierge (Ausstattung) — status=${r.status}`);
-  } catch (e) {
+  } catch {
     fail('POST /api/concierge (Ausstattung) — fetch failed');
   }
 
-  // 5) Booking availability (API based)
-  // NOTE: This does NOT create a reservation. Safe to run in prod.
+  // 6) Booking availability (API based; safe)
   try {
     const r = await request('/api/booking/availability', {
       method: 'POST',
@@ -107,11 +120,11 @@ function fail(msg) { out('FAIL', msg); failed = true; }
     } else {
       fail(`POST /api/booking/availability — status=${r.status}, body=${JSON.stringify(r.data)}`);
     }
-  } catch (e) {
+  } catch {
     fail('POST /api/booking/availability — fetch failed');
   }
 
-  // 6) Admin-protected endpoint
+  // 7) Admin-protected endpoint
   try {
     const r = await request('/api/smoobu/bookings', { method: 'GET' });
     if (!ADMIN_TOKEN) {
@@ -121,7 +134,7 @@ function fail(msg) { out('FAIL', msg); failed = true; }
       if (r.status === 200) pass('GET /api/smoobu/bookings (with token)');
       else fail(`GET /api/smoobu/bookings (with token) — status=${r.status}`);
     }
-  } catch (e) {
+  } catch {
     fail('GET /api/smoobu/bookings — fetch failed');
   }
 

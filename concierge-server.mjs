@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
+import pg from "pg";
 
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
@@ -20,8 +21,162 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/ad
 const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
-const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "").toLowerCase() === "true";
 const SMOOBU_BASE = "https://login.smoobu.com";
+
+// ---------------- Database (optional) ----------------
+// Used to persist booking/payment state (needed for Stripe flow).
+// If DATABASE_URL is missing or DB init fails, we fall back to in-memory storage (NOT recommended for production).
+const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.PG_URL || "";
+const BOOKING_QUOTE_TTL_MIN = Number(process.env.BOOKING_QUOTE_TTL_MIN || "15");
+const BOOKING_QUOTE_TTL_MS = Math.max(1, BOOKING_QUOTE_TTL_MIN) * 60 * 1000;
+
+const dbState = { kind: DATABASE_URL ? "postgres" : "memory", ready: false, error: null };
+let pgPool = null;
+const memQuotes = new Map(); // quoteId -> record
+let _dbInitPromise = null;
+
+function pgSslConfigFromUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    const sslmode = String(u.searchParams.get("sslmode") || "").toLowerCase();
+    if (sslmode === "disable") return false;
+    if (sslmode === "require" || sslmode === "verify-ca" || sslmode === "verify-full") return { rejectUnauthorized: false };
+  } catch {}
+  const force = String(process.env.PGSSLMODE || "").toLowerCase();
+  const dbSsl = String(process.env.DB_SSL || "").toLowerCase();
+  if (force === "disable" || dbSsl === "false") return false;
+  if (force === "require" || dbSsl === "true") return { rejectUnauthorized: false };
+  // Heuristic: Render/managed DBs often require SSL
+  if (process.env.RENDER || process.env.RENDER_SERVICE_ID) return { rejectUnauthorized: false };
+  return false;
+}
+
+async function initDb() {
+  if (!DATABASE_URL) {
+    dbState.kind = "memory";
+    dbState.ready = true;
+    return;
+  }
+  try {
+    const { Pool } = pg;
+    const ssl = pgSslConfigFromUrl(DATABASE_URL);
+    pgPool = new Pool({ connectionString: DATABASE_URL, ...(ssl ? { ssl } : {}) });
+    await pgPool.query("SELECT 1");
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS booking_quotes (
+        quote_id TEXT PRIMARY KEY,
+        apartment_id INTEGER NOT NULL,
+        arrival TEXT NOT NULL,
+        departure TEXT NOT NULL,
+        nights INTEGER NOT NULL,
+        guests INTEGER NOT NULL,
+        adults INTEGER,
+        children INTEGER,
+        amount_cents INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        discount_code TEXT,
+        offer_token TEXT,
+        offer_expires_at TIMESTAMPTZ,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        meta JSONB
+      );
+      CREATE INDEX IF NOT EXISTS booking_quotes_expires_idx ON booking_quotes(expires_at);
+      CREATE INDEX IF NOT EXISTS booking_quotes_status_idx ON booking_quotes(status);
+    `);
+    dbState.kind = "postgres";
+    dbState.ready = true;
+  } catch (e) {
+    console.error("⚠️ DB init failed, falling back to in-memory storage:", e?.message || e);
+    dbState.kind = "memory";
+    dbState.ready = true;
+    dbState.error = String(e?.message || e);
+    pgPool = null;
+  }
+}
+
+function ensureDb() {
+  if (!_dbInitPromise) _dbInitPromise = initDb();
+  return _dbInitPromise;
+}
+
+async function dbCreateQuote(rec) {
+  await ensureDb();
+  if (pgPool) {
+    const meta = rec.meta ? JSON.stringify(rec.meta) : null;
+    await pgPool.query(
+      `INSERT INTO booking_quotes
+        (quote_id, apartment_id, arrival, departure, nights, guests, adults, children, amount_cents, currency, discount_code, offer_token, offer_expires_at, status, created_at, expires_at, meta)
+       VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)`,
+      [
+        rec.quoteId,
+        rec.apartmentId,
+        rec.arrival,
+        rec.departure,
+        rec.nights,
+        rec.guests,
+        rec.adults ?? null,
+        rec.children ?? null,
+        rec.amountCents,
+        rec.currency,
+        rec.discountCode ?? null,
+        rec.offerToken ?? null,
+        rec.offerExpiresAt ? new Date(rec.offerExpiresAt) : null,
+        rec.status || 'active',
+        new Date(rec.createdAt),
+        new Date(rec.expiresAt),
+        meta,
+      ]
+    );
+    return;
+  }
+  memQuotes.set(rec.quoteId, rec);
+}
+
+async function dbGetQuote(quoteId) {
+  await ensureDb();
+  if (pgPool) {
+    const r = await pgPool.query(
+      `SELECT quote_id, apartment_id, arrival, departure, nights, guests, adults, children, amount_cents, currency, discount_code, offer_token, offer_expires_at, status, created_at, expires_at, meta
+         FROM booking_quotes
+        WHERE quote_id = $1
+        LIMIT 1`,
+      [quoteId]
+    );
+    if (!r.rowCount) return null;
+    const row = r.rows[0];
+    const expiresAt = row.expires_at ? new Date(row.expires_at).toISOString() : null;
+    if (expiresAt && new Date(expiresAt).getTime() < Date.now()) return null;
+    return {
+      quoteId: row.quote_id,
+      apartmentId: row.apartment_id,
+      arrival: row.arrival,
+      departure: row.departure,
+      nights: row.nights,
+      guests: row.guests,
+      adults: row.adults,
+      children: row.children,
+      amountCents: row.amount_cents,
+      currency: row.currency,
+      discountCode: row.discount_code,
+      offerToken: row.offer_token,
+      offerExpiresAt: row.offer_expires_at ? new Date(row.offer_expires_at).toISOString() : null,
+      status: row.status,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+      expiresAt,
+      meta: row.meta || null,
+    };
+  }
+  const rec = memQuotes.get(quoteId) || null;
+  if (!rec) return null;
+  if (rec.expiresAt && new Date(rec.expiresAt).getTime() < Date.now()) {
+    memQuotes.delete(quoteId);
+    return null;
+  }
+  return rec;
+}
 
 // Mini-Cache (damit wir Smoobu nicht spammen)
 const cache = {
@@ -618,6 +773,23 @@ function formatMoney(amount, currency) {
   } catch {
     return `${n.toFixed(2)} ${cur}`;
   }
+}
+
+function normalizeCurrencyCode(cur) {
+  const raw = String(cur || "").trim();
+  if (!raw) return "EUR";
+  const up = raw.toUpperCase();
+  if (up in {"EUR":1,"EURO":1,"€":1}) return "EUR";
+  const letters = up.replace(/[^A-Z]/g, "");
+  if (letters.length === 3) return letters;
+  return "EUR";
+}
+
+function amountToCents(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return null;
+  // Smoobu prices are in major units (EUR). Stripe wants cents.
+  return Math.round(n * 100);
 }
 
 async function fetchStayOptions({ arrival, departure, guests }) {
@@ -1308,6 +1480,23 @@ app.get("/api/debug/vars", (req, res) => {
   });
 });
 
+// DB visibility (no secrets). Used to verify DATABASE_URL / connection on Render.
+app.get("/api/debug/db", async (req, res) => {
+  await ensureDb();
+  res.json({
+    ok: true,
+    db: {
+      kind: dbState.kind,
+      ready: dbState.ready,
+      databaseUrlSet: Boolean(DATABASE_URL),
+      error: dbState.error || null,
+    },
+    quote: {
+      ttlMinutes: BOOKING_QUOTE_TTL_MIN,
+    },
+  });
+});
+
 // Knowledge visibility (no PII). Helps verify that lists are actually loaded on Render.
 app.get("/api/debug/knowledge", (req, res) => {
   const raw = loadKnowledge();
@@ -1368,25 +1557,12 @@ async function smoobuAvailabilityHandler(req, res) {
     }
 
     const { arrivalDate, departureDate, apartments, guests, discountCode } = req.body || {};
-    let aIso = toISODate(arrivalDate);
-    let dIso = toISODate(departureDate);
+    const aIso = toISODate(arrivalDate);
+    const dIso = toISODate(departureDate);
     if (!aIso || !dIso) {
       return res.status(400).json({
         error: "arrivalDate and departureDate required",
         hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026",
-      });
-    }
-
-    // Defensive: ensure chronological order (prevents Smoobu validation errors when dates are swapped)
-    if (aIso > dIso) {
-      const tmp = aIso;
-      aIso = dIso;
-      dIso = tmp;
-    }
-    if (aIso === dIso) {
-      return res.status(400).json({
-        error: "invalid_date_range",
-        hint: "departureDate must be after arrivalDate (mindestens 1 Nacht).",
       });
     }
 
@@ -1460,31 +1636,268 @@ app.post("/api/smoobu/availability", smoobuAvailabilityHandler);
 app.post("/concierge/availability", rateLimit, smoobuAvailabilityHandler);
 app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
 
-// Dedicated Booking API (frontend <-> backend <-> Smoobu)
+// Preferred API namespace for website booking widgets / landing pages
 app.post("/api/booking/availability", rateLimit, smoobuAvailabilityHandler);
+
+// Step 1 (Stripe-ready): Create a server-side quote for ONE apartment.
+// - Calls Smoobu availability/price
+// - Returns nights + total price + price/night
+// - Persists the quote in DB (or memory fallback) with a TTL
+async function bookingQuoteHandler(req, res) {
+  try {
+    if (!SMOOBU_CUSTOMER_ID) {
+      return res.status(500).json({ error: "SMOOBU_CUSTOMER_ID missing" });
+    }
+
+    const body = req.body || {};
+
+    const apartmentIdRaw =
+      body.apartmentId ??
+      body.apartment_id ??
+      body.smoobuApartmentId ??
+      body.smoobu_id ??
+      body.id ??
+      null;
+
+    const apartmentId = Number(apartmentIdRaw);
+    if (!Number.isFinite(apartmentId)) {
+      return res.status(400).json({
+        error: "apartmentId_required",
+        hint: "Provide apartmentId (Smoobu apartment id).",
+      });
+    }
+
+    const arrivalRaw = body.arrivalDate ?? body.arrival ?? body.from ?? body.checkin ?? "";
+    const departureRaw = body.departureDate ?? body.departure ?? body.to ?? body.checkout ?? "";
+
+    const aIso = toISODate(arrivalRaw);
+    const dIso = toISODate(departureRaw);
+
+    if (!aIso || !dIso) {
+      return res.status(400).json({
+        error: "dates_required",
+        hint: "Provide arrivalDate/from and departureDate/to (YYYY-MM-DD or D.M.YY).",
+      });
+    }
+
+    if (String(dIso) <= String(aIso)) {
+      return res.status(400).json({
+        error: "invalid_date_range",
+        hint: "departureDate must be after arrivalDate.",
+        validation_messages: {
+          departureDate: { callbackValue: "Departure date can't be before arrival date" },
+        },
+      });
+    }
+
+    const adultsRaw = body.adults;
+    const childrenRaw = body.children;
+    const adults = adultsRaw === undefined || adultsRaw === null || adultsRaw === "" ? null : Number(adultsRaw);
+    const children = childrenRaw === undefined || childrenRaw === null || childrenRaw === "" ? null : Number(childrenRaw);
+
+    const guestsRaw =
+      body.guests ??
+      (Number.isFinite(adults) || Number.isFinite(children) ? Number(adults || 0) + Number(children || 0) : null);
+
+    const guests = Number(guestsRaw);
+    if (!Number.isFinite(guests) || guests <= 0 || guests >= 30) {
+      return res.status(400).json({
+        error: "guests_required",
+        hint: "Provide guests (or adults + children).",
+      });
+    }
+
+    const discountCode =
+      typeof body.discountCode === "string"
+        ? body.discountCode.trim()
+        : typeof body.discount === "string"
+        ? body.discount.trim()
+        : "";
+
+    const unit = findUnitByApartmentId(apartmentId);
+    if (unit?.max_persons && guests > Number(unit.max_persons)) {
+      return res.status(400).json({
+        error: "guests_exceed_max",
+        hint: `Maximale Personenanzahl für diese Einheit: ${unit.max_persons}.`,
+        max_persons: Number(unit.max_persons),
+      });
+    }
+
+    const payload = {
+      arrivalDate: aIso,
+      departureDate: dIso,
+      apartments: [apartmentId],
+      customerId: Number(SMOOBU_CUSTOMER_ID),
+      guests,
+    };
+    if (discountCode) payload.discountCode = discountCode;
+
+    const data = await smoobuFetch("/booking/checkApartmentAvailability", {
+      method: "POST",
+      jsonBody: payload,
+    });
+
+    const availableApartments = Array.isArray(data?.availableApartments) ? data.availableApartments.map(Number) : [];
+    const isAvailable = availableApartments.includes(apartmentId);
+
+    if (!isAvailable) {
+      return res.status(409).json({
+        ok: false,
+        available: false,
+        error: "not_available",
+        apartmentId,
+        arrivalDate: aIso,
+        departureDate: dIso,
+        guests,
+      });
+    }
+
+    const priceInfo = data?.prices?.[String(apartmentId)] || data?.prices?.[apartmentId] || null;
+    const amount = Number(priceInfo?.price ?? NaN);
+    const currency = normalizeCurrencyCode(priceInfo?.currency || "EUR");
+    const amountCents = amountToCents(amount);
+
+    const nights = nightsBetween(aIso, dIso);
+    if (!Number.isFinite(nights) || nights <= 0) {
+      return res.status(400).json({
+        error: "invalid_nights",
+        hint: "Check arrival/departure dates.",
+      });
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(amountCents) || amountCents <= 0) {
+      return res.status(502).json({
+        error: "price_missing",
+        hint: "Smoobu returned no price for this unit/date/guests.",
+        apartmentId,
+        priceInfo,
+      });
+    }
+
+    const quoteId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + BOOKING_QUOTE_TTL_MS).toISOString();
+
+    // Optional: create a signed offer token (can be used for booking later).
+    let offerToken = null;
+    let offerExpiresAt = null;
+    try {
+      // Keep token TTL aligned with quote TTL (but never less than 5 min / never more than 20 min by default).
+      const exp = Date.now() + BOOKING_QUOTE_TTL_MS;
+      offerToken = signOffer({
+        apartmentId,
+        arrivalDate: aIso,
+        departureDate: dIso,
+        guests,
+        price: amount,
+        currency,
+        discountCode: discountCode || null,
+        exp,
+      });
+      offerExpiresAt = new Date(exp).toISOString();
+    } catch {
+      offerToken = null;
+      offerExpiresAt = null;
+    }
+
+    const rec = {
+      quoteId,
+      apartmentId,
+      arrival: aIso,
+      departure: dIso,
+      nights,
+      guests,
+      adults: Number.isFinite(adults) ? adults : null,
+      children: Number.isFinite(children) ? children : null,
+      amountCents,
+      currency,
+      discountCode: discountCode || null,
+      offerToken,
+      offerExpiresAt,
+      status: "active",
+      createdAt,
+      expiresAt,
+      meta: {
+        source: "smoobu",
+        unit: unit
+          ? {
+              name: unit.name || null,
+              category: unit.category || null,
+              details_url: unit.details_url || null,
+              smoobu_id: Number(unit.smoobu_id) || apartmentId,
+            }
+          : null,
+      },
+    };
+
+    await dbCreateQuote(rec);
+
+    res.json({
+      ok: true,
+      quoteId,
+      createdAt,
+      expiresAt,
+      offerToken,
+      offerExpiresAt,
+      unit: unit
+        ? {
+            apartmentId,
+            name: unit.name,
+            category: unit.category,
+            details_url: unit.details_url,
+            max_persons: unit.max_persons ? Number(unit.max_persons) : null,
+          }
+        : { apartmentId },
+      stay: {
+        arrivalDate: aIso,
+        departureDate: dIso,
+        nights,
+        guests,
+        adults: Number.isFinite(adults) ? adults : null,
+        children: Number.isFinite(children) ? children : null,
+      },
+      price: {
+        amount,
+        amountCents,
+        currency,
+        perNight: Math.round((amount / nights) * 100) / 100,
+        perNightCents: Math.round(amountCents / nights),
+      },
+    });
+  } catch (err) {
+    console.error("❌ Quote error:", err);
+    res.status(err.status || 500).json({
+      error: "quote_error",
+      details: err.details || { message: err?.message || String(err) },
+    });
+  }
+}
+
+app.post("/api/booking/quote", rateLimit, bookingQuoteHandler);
+
+// Debug / internal usage: fetch a quote by id (returns 404 when expired).
+app.get("/api/booking/quote/:quoteId", async (req, res) => {
+  try {
+    const quoteId = String(req.params.quoteId || "").trim();
+    if (!quoteId) return res.status(400).json({ ok: false, error: "quoteId_required" });
+    const q = await dbGetQuote(quoteId);
+    if (!q) return res.status(404).json({ ok: false, error: "quote_not_found_or_expired" });
+    res.json({ ok: true, quote: q });
+  } catch (err) {
+    console.error("❌ Get quote error:", err);
+    res.status(500).json({ ok: false, error: "quote_get_error" });
+  }
+});
 
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
 async function computeOfferPayloads(arrivalDate, departureDate, guests) {
-  let aIso = toISODate(arrivalDate);
-  let dIso = toISODate(departureDate);
+  const aIso = toISODate(arrivalDate);
+  const dIso = toISODate(departureDate);
   if (!aIso || !dIso) {
     const err = new Error("Invalid date format");
     err.status = 400;
     err.details = { hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026" };
-    throw err;
-  }
-
-  // Defensive: ensure chronological order (prevents swapped date ranges)
-  if (aIso > dIso) {
-    const tmp = aIso;
-    aIso = dIso;
-    dIso = tmp;
-  }
-  if (aIso === dIso) {
-    const err = new Error("Invalid date range");
-    err.status = 400;
-    err.details = { error: "invalid_date_range", hint: "departureDate must be after arrivalDate (mindestens 1 Nacht)." };
     throw err;
   }
 
@@ -1533,7 +1946,7 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
   return offerPayloads;
 }
 
-async function publicBookHandler(req, res) {
+async function smoobuBookHandler(req, res) {
   try {
     const body = req.body || {};
 
@@ -1592,88 +2005,13 @@ async function publicBookHandler(req, res) {
     const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
     const email = typeof body.email === "string" ? body.email.trim() : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    // Some Smoobu setups (incl. booking tool validation settings) require
-    // address/country/phone for direct bookings.
-    //
-    // IMPORTANT: In the Smoobu API, "address" is an object, not a string:
-    //   address: { street, postalCode, location }, plus top-level "country".
-    // We accept multiple input shapes for compatibility (frontend should send the object).
-    const country = typeof body.country === "string" ? body.country.trim() : "";
     const language = typeof body.language === "string" ? body.language.trim() : "de";
     const notice = typeof body.notice === "string" ? body.notice.trim() : "";
 
-    const addressObj = (() => {
-      // Preferred: address as object
-      if (body.address && typeof body.address === "object") {
-        const street = typeof body.address.street === "string" ? body.address.street.trim() : "";
-        const postalCode = typeof body.address.postalCode === "string" ? body.address.postalCode.trim() : "";
-        const location = typeof body.address.location === "string" ? body.address.location.trim() : "";
-        return { street, postalCode, location };
-      }
-
-      // Legacy: separate fields
-      const street = typeof body.street === "string" ? body.street.trim() : "";
-      const postalCode =
-        typeof body.postalCode === "string"
-          ? body.postalCode.trim()
-          : typeof body.zip === "string"
-            ? body.zip.trim()
-            : "";
-      const location =
-        typeof body.location === "string"
-          ? body.location.trim()
-          : typeof body.city === "string"
-            ? body.city.trim()
-            : "";
-
-      if (street || postalCode || location) {
-        return { street, postalCode, location };
-      }
-
-      // Legacy: single line address string e.g. "Street 1, 6335 Thiersee"
-      const line = typeof body.address === "string" ? body.address.trim() : "";
-      if (!line) return { street: "", postalCode: "", location: "" };
-
-      const parts = line
-        .split(",")
-        .map((p) => String(p || "").trim())
-        .filter(Boolean);
-
-      const street2 = parts[0] || line;
-      const rest = parts.slice(1).join(" ").trim();
-
-      let postal2 = "";
-      let loc2 = "";
-
-      if (rest) {
-        const m = rest.match(/^(\d{3,10})\s+(.*)$/);
-        if (m) {
-          postal2 = m[1];
-          loc2 = (m[2] || "").trim();
-        } else {
-          loc2 = rest;
-        }
-      }
-
-      return { street: street2, postalCode: postal2, location: loc2 };
-    })();
-
-    // Guest validation (frontend should already enforce this, but keep backend strict).
-    const missing = [];
-    if (!firstName) missing.push("firstName");
-    if (!lastName) missing.push("lastName");
-    if (!email) missing.push("email");
-    if (!phone) missing.push("phone");
-    if (!addressObj.street) missing.push("address.street");
-    if (!addressObj.postalCode) missing.push("address.postalCode");
-    if (!addressObj.location) missing.push("address.location");
-    if (!country) missing.push("country");
-
-    if (missing.length) {
+    if (!firstName || !lastName || !email) {
       return res.status(400).json({
         error: "missing_guest_fields",
-        missing,
-        hint: "Provide guest fields: firstName, lastName, email, phone, address{street,postalCode,location}, country.",
+        hint: "Missing: firstName, lastName, email (phone optional).",
       });
     }
 
@@ -1681,46 +2019,11 @@ async function publicBookHandler(req, res) {
     const children = Number(body.children ?? 0);
     const guests = Number(body.guests ?? (adults + children) ?? offer.guests);
 
-    // Defensive: normalize offer date order + format (prevents Smoobu validation errors)
-    // We accept offer tokens from older versions too (arrival/departure vs arrivalDate/departureDate)
-    if (offer) {
-      const rawArrival = offer.arrivalDate ?? offer.arrival ?? "";
-      const rawDeparture = offer.departureDate ?? offer.departure ?? "";
-
-      let aIso = toISODate(rawArrival);
-      let dIso = toISODate(rawDeparture);
-
-      if (!aIso || !dIso) {
-        return res.status(400).json({
-          error: "invalid_date_format",
-          hint: "arrival/departure must be YYYY-MM-DD (or a parseable date like 01.02.2026).",
-          received: { arrival: rawArrival || null, departure: rawDeparture || null },
-        });
-      }
-
-      if (aIso > dIso) {
-        const tmp = aIso;
-        aIso = dIso;
-        dIso = tmp;
-      }
-
-      if (aIso === dIso) {
-        return res.status(400).json({
-          error: "invalid_date_range",
-          hint: "departureDate must be after arrivalDate (mindestens 1 Nacht).",
-        });
-      }
-
-      offer.arrivalDate = aIso;
-      offer.departureDate = dIso;
-    }
-
     // --- Build Smoobu reservation payload ---
     const reservationPayload = {
-      // Smoobu API expects arrivalDate/departureDate (YYYY-MM-DD)
-      // Docs: https://docs.smoobu.com/#create-booking
-      arrivalDate: offer.arrivalDate,
-      departureDate: offer.departureDate,
+      // Smoobu expects YYYY-MM-DD
+      arrival: offer.arrivalDate,
+      departure: offer.departureDate,
       apartmentId: offer.apartmentId,
       channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
 
@@ -1729,8 +2032,6 @@ async function publicBookHandler(req, res) {
       lastName,
       email,
       phone,
-      address: addressObj,
-      country,
       language,
 
       // Guests
@@ -1739,6 +2040,7 @@ async function publicBookHandler(req, res) {
 
       // Price (best effort; Smoobu may recalc)
       price: offer.price,
+      currency: offer.currency,
 
       // Internal note (shows up for you, not the guest)
       notice,
@@ -1753,50 +2055,6 @@ async function publicBookHandler(req, res) {
     // Some Smoobu responses return {id:...} others {reservationId:...}
     const bookingId = result?.id ?? result?.reservationId ?? null;
 
-    // --- Optional extras (best effort) ---
-    // Frontend may send extras like dogs; we attach them as price elements to the reservation.
-    const extras = (body && typeof body.extras === 'object' && body.extras) ? body.extras : {};
-    const extrasApplied = { dogs: 0, dogPricePerNight: 0, nights: 0, addedPriceElements: [], errors: [] };
-
-    try {
-      const dogs = Number(extras.dogs ?? 0);
-      const dogPricePerNight = Number(extras.dogPricePerNight ?? 0);
-
-      // nights between arrival and departure
-      const nights = (() => {
-        const a = new Date(String(offer.arrivalDate) + 'T00:00:00Z');
-        const d = new Date(String(offer.departureDate) + 'T00:00:00Z');
-        const ms = d.getTime() - a.getTime();
-        const n = Math.round(ms / 86400000);
-        return Number.isFinite(n) && n > 0 ? n : 0;
-      })();
-
-      extrasApplied.dogs = Number.isFinite(dogs) ? dogs : 0;
-      extrasApplied.dogPricePerNight = Number.isFinite(dogPricePerNight) ? dogPricePerNight : 0;
-      extrasApplied.nights = nights;
-
-      if (bookingId && extrasApplied.dogs > 0 && extrasApplied.dogPricePerNight > 0 && nights > 0) {
-        const amount = Math.round(extrasApplied.dogs * extrasApplied.dogPricePerNight * nights * 100) / 100;
-        const pePayload = {
-          name: `Hund (${extrasApplied.dogs}x)`,
-          amount,
-          tax: 0,
-          calculationType: 0,
-        };
-        try {
-          const peRes = await smoobuFetch(`/api/reservations/${encodeURIComponent(bookingId)}/price-elements`, {
-            method: 'POST',
-            jsonBody: pePayload,
-          });
-          extrasApplied.addedPriceElements.push({ type: 'dog', amount, response: peRes });
-        } catch (e) {
-          extrasApplied.errors.push({ type: 'dog', details: e?.details || { message: e?.message || String(e) } });
-        }
-      }
-    } catch (e) {
-      extrasApplied.errors.push({ type: 'extras', details: { message: e?.message || String(e) } });
-    }
-
     return res.status(200).json({
       ok: true,
       id: bookingId,
@@ -1808,7 +2066,6 @@ async function publicBookHandler(req, res) {
         price: offer.price,
         currency: offer.currency,
       },
-      extrasApplied,
       result,
     });
   } catch (err) {
@@ -1822,8 +2079,8 @@ async function publicBookHandler(req, res) {
   }
 }
 
-app.post("/concierge/book", rateLimit, publicBookHandler);
-app.post("/api/booking/book", rateLimit, publicBookHandler);
+app.post("/concierge/book", rateLimit, smoobuBookHandler);
+app.post("/api/booking/book", rateLimit, smoobuBookHandler);
 
 async function conciergeChatHandler(req, res) {
   try {
@@ -1863,7 +2120,7 @@ async function conciergeChatHandler(req, res) {
       const sys = [
         "Du bist der Alpenlodge Concierge.",
         "Antworten kurz, freundlich und konkret.",
-        "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.",
+        "Wenn die Frage nach Verfügbarkeit/Preis klingt, frage nach: Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer.",
         "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
         `Seite: ${page}. Locale: ${locale}.`,
       ].join(" ");
@@ -1906,23 +2163,20 @@ async function conciergeChatHandler(req, res) {
     }
 
 
-    // Booking / availability / prices (Smoobu) — OPTIONAL.
-    // Default: disabled (Concierge should be Auskunft only). Enable via env: CONCIERGE_ENABLE_BOOKING_CHAT=true
-    if (CONCIERGE_ENABLE_BOOKING_CHAT) {
-      try {
-        const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
-        if (booking) return res.json(booking);
-      } catch (err) {
-        console.error("❌ Booking flow error:", err);
-        const isEn = String(locale || "").toLowerCase().startsWith("en");
-        return res.status(err.status || 500).json({
-          reply: isEn
-            ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
-            : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
-          error: "booking_error",
-          details: err.details || null,
-        });
-      }
+    // Booking / availability / prices (Smoobu) — deterministic, no hallucinations
+    try {
+      const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
+      if (booking) return res.json(booking);
+    } catch (err) {
+      console.error("❌ Booking flow error:", err);
+      const isEn = String(locale || "").toLowerCase().startsWith("en");
+      return res.status(err.status || 500).json({
+        reply: isEn
+          ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
+          : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
+        error: "booking_error",
+        details: err.details || null,
+      });
     }
 
 // Knowledge-first (NO hallucinations): lists/recommendations come from knowledge/verified.json
