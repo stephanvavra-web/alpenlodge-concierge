@@ -20,7 +20,6 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/ad
 const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
-const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "").toLowerCase() === "true";
 const SMOOBU_BASE = "https://login.smoobu.com";
 
 // Mini-Cache (damit wir Smoobu nicht spammen)
@@ -30,28 +29,205 @@ const cache = {
 };
 
 // ---------------- Verified knowledge (NO HALLUCINATIONS) ----------------
-// The concierge must ONLY recommend items that exist in this file. If an item isn't here,
-// answer with official directories (also in this file) and ask the user what they want.
-const KNOWLEDGE_FILE = process.env.KNOWLEDGE_FILE || path.join(__dirname, "knowledge", "verified.json");
-let _knowledgeCache = { ts: 0, mtimeMs: 0, value: null };
+// The concierge must ONLY recommend items that exist in our local knowledge JSON files.
+//
+// IMPORTANT: Alle Knowledge-JSONs im Ordner `knowledge/` werden aktiv geladen (Dateinamen egal).
+// Optional: `KNOWLEDGE_FILE` kann auch auf *eine einzelne* JSON zeigen (Legacy/Debug).
+// Default: `<repo>/knowledge` (Directory-Mode).
+const KNOWLEDGE_FILE = process.env.KNOWLEDGE_FILE || path.join(__dirname, "knowledge"); // file OR directory
+
+let _knowledgeCache = { signature: "", value: null, files: [], skipped: [] };
+
+function _isDir(p) {
+  try { return fs.statSync(p).isDirectory(); } catch { return false; }
+}
+function _safeBaseName(p) {
+  try { return path.basename(p); } catch { return String(p || ""); }
+}
+function _resolveKnowledgePath() {
+  return path.isAbsolute(KNOWLEDGE_FILE) ? KNOWLEDGE_FILE : path.join(process.cwd(), KNOWLEDGE_FILE);
+}
+
+function listKnowledgeJsonFiles() {
+  const p = _resolveKnowledgePath();
+
+  // Directory-mode: load ALL *.json files in that directory
+  if (_isDir(p)) {
+    const files = fs.readdirSync(p)
+      .filter((f) => f.toLowerCase().endsWith(".json"))
+      .filter((f) => !f.startsWith("."))
+      .filter((f) => !f.startsWith("._")) // macOS Finder junk
+      .map((f) => path.join(p, f))
+      .sort((a, b) => _safeBaseName(a).localeCompare(_safeBaseName(b), "de"));
+    return { mode: "dir", base: p, files };
+  }
+
+  // File-mode (legacy)
+  return { mode: "file", base: path.dirname(p), files: [p] };
+}
+
+function makeKnowledgeSignature(filePaths) {
+  const parts = [];
+  for (const fp of filePaths) {
+    try {
+      const st = fs.statSync(fp);
+      parts.push(`${_safeBaseName(fp)}:${st.mtimeMs}:${st.size}`);
+    } catch {
+      parts.push(`${_safeBaseName(fp)}:missing`);
+    }
+  }
+  return parts.join("|");
+}
+
+function dedupeText(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function dedupeKeyForItem(it) {
+  const url = String(it?.url || it?.website || "").trim();
+  const src = String(it?.sourceUrl || it?.source || "").trim();
+  const u = url || src;
+  if (u.startsWith("http://") || u.startsWith("https://")) return `url:${u}`;
+
+  const name = dedupeText(it?.name || it?.title || "");
+  const lat = Number(it?.lat);
+  const lon = Number(it?.lon);
+  if (name && Number.isFinite(lat) && Number.isFinite(lon)) return `geo:${name}:${lat.toFixed(5)}:${lon.toFixed(5)}`;
+  if (name) return `name:${name}`;
+
+  return `json:${JSON.stringify(it).slice(0, 220)}`;
+}
+
+function mergeNormalizedKnowledge(parts) {
+  const out = { categories: {}, directories: [], alpenlodge: null, meta: {} };
+
+  const dirSeen = new Set();
+  const itemSeen = new Map(); // cat -> Set
+
+  const addDir = (d) => {
+    if (!d) return;
+    const url = String(d.url || d.href || "").trim();
+    if (!url || !(url.startsWith("http://") || url.startsWith("https://"))) return;
+    if (dirSeen.has(url)) return;
+    dirSeen.add(url);
+    out.directories.push({
+      label: String(d.label || d.name || url),
+      url,
+      category: d.category || null,
+    });
+  };
+
+  const mergeAlpenlodge = (a) => {
+    if (!a || typeof a !== "object") return;
+    if (!out.alpenlodge) {
+      out.alpenlodge = a;
+      return;
+    }
+
+    // Merge amenities (best effort, dedupe by name)
+    const a0 = out.alpenlodge;
+    const amen0 = Array.isArray(a0.amenities) ? a0.amenities : [];
+    const amen1 = Array.isArray(a.amenities) ? a.amenities : [];
+    if (amen1.length) {
+      const seen = new Set(amen0.map((x) => dedupeText(x?.name || x?.title || "")));
+      const merged = [...amen0];
+      for (const x of amen1) {
+        const k = dedupeText(x?.name || x?.title || "");
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        merged.push(x);
+      }
+      a0.amenities = merged;
+    }
+  };
+
+  for (const n of (Array.isArray(parts) ? parts : [])) {
+    if (!n) continue;
+
+    if (n.meta && typeof n.meta === "object") out.meta = { ...out.meta, ...n.meta };
+    mergeAlpenlodge(n.alpenlodge);
+
+    (Array.isArray(n.directories) ? n.directories : []).forEach(addDir);
+
+    for (const [cat, arr] of Object.entries(n.categories || {})) {
+      if (!Array.isArray(arr)) continue;
+      if (!out.categories[cat]) out.categories[cat] = [];
+      const seen = itemSeen.get(cat) || new Set();
+      itemSeen.set(cat, seen);
+      for (const it of arr) {
+        if (!it || typeof it !== "object") continue;
+        const key = dedupeKeyForItem(it);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.categories[cat].push(it);
+      }
+    }
+  }
+
+  return out;
+}
 
 function loadKnowledge() {
   try {
-    const p = path.isAbsolute(KNOWLEDGE_FILE) ? KNOWLEDGE_FILE : path.join(process.cwd(), KNOWLEDGE_FILE);
-    const st = fs.statSync(p);
-    if (_knowledgeCache.value && _knowledgeCache.mtimeMs === st.mtimeMs) return _knowledgeCache.value;
-    const raw = fs.readFileSync(p, "utf8");
-    const json = JSON.parse(raw);
-    _knowledgeCache = { ts: Date.now(), mtimeMs: st.mtimeMs, value: json };
-    return json;
+    const info = listKnowledgeJsonFiles();
+    const signature = `${info.mode}|${info.base}|${makeKnowledgeSignature(info.files)}`;
+    if (_knowledgeCache.value && _knowledgeCache.signature === signature) return _knowledgeCache.value;
+
+    const loaded = [];
+    const skipped = [];
+
+    for (const fp of info.files) {
+      try {
+        const raw = fs.readFileSync(fp, "utf8");
+        const json = JSON.parse(raw);
+
+        // normalizeKnowledge() returns null if it doesn't look like a knowledge schema
+        const norm = normalizeKnowledge(json);
+        if (!norm) {
+          skipped.push({ file: _safeBaseName(fp), reason: "not_knowledge_schema" });
+          continue;
+        }
+
+        loaded.push({ file: _safeBaseName(fp), norm });
+      } catch (e) {
+        skipped.push({ file: _safeBaseName(fp), reason: "parse_error" });
+      }
+    }
+
+    const merged = mergeNormalizedKnowledge(loaded.map((x) => x.norm));
+
+    // Attach debug info (safe, no secrets)
+    merged._debug = {
+      mode: info.mode,
+      base: info.base,
+      files: loaded.map((x) => ({
+        file: x.file,
+        directories: Array.isArray(x.norm.directories) ? x.norm.directories.length : 0,
+        categories: Object.fromEntries(
+          Object.entries(x.norm.categories || {}).map(([k, v]) => [k, Array.isArray(v) ? v.length : 0])
+        ),
+      })),
+      skipped,
+    };
+
+    _knowledgeCache = { signature, value: merged, files: merged._debug.files, skipped };
+    return merged;
   } catch (e) {
     return null;
   }
 }
+
 // Normalize knowledge formats.
 // Supports either:
 // A) { categories: { ski: [...], restaurants: [...], ... }, directories: [...] }
-// B) { items: [...], sources: {...}, alpenlodge:{center:{lat,lon}}, meta:{rules:{default_radius_km}} }
+// B) { items: [...], sources: {...}, directories?: [...], alpenlodge?:{...}, center?:{lat,lon}, meta?:{...} }
+// C) { highlights: { ... }, official_portals?: [...], meta?:{...} }
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -65,55 +241,183 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 
 function normalizeKnowledge(raw) {
   if (!raw || typeof raw !== "object") return null;
-  // Already in expected shape
-  if (raw.categories && typeof raw.categories === "object") {
-    return {
-      categories: raw.categories,
-      directories: Array.isArray(raw.directories) ? raw.directories : [],
-      alpenlodge: raw.alpenlodge || null,
-      meta: raw.meta || {},
+
+  // ---------------- Format C (concierge_knowledge_de_verified.json): highlights + official portals
+  if (raw.highlights && typeof raw.highlights === "object") {
+    const out = { categories: {}, directories: [], alpenlodge: raw.alpenlodge || null, meta: raw.meta || {} };
+
+    const push = (cat, it) => {
+      if (!out.categories[cat]) out.categories[cat] = [];
+      out.categories[cat].push(it);
     };
+
+    const mapHighlightKeyToCat = (k) => {
+      const key = String(k || "").toLowerCase();
+      if (key === "water") return "lakes_pools_wellness";
+      if (key === "wellness_pools") return "lakes_pools_wellness";
+      if (key === "ski") return "ski";
+      if (key === "rodel") return "rodel";
+      if (key === "family") return "family";
+      return "activities";
+    };
+
+    // Official portals -> directories
+    const portals = Array.isArray(raw.official_portals) ? raw.official_portals : [];
+    portals.forEach((p) => {
+      const url = p?.url || p?.href;
+      const name = p?.name || p?.label || "Offizielles Portal";
+      if (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://"))) {
+        out.directories.push({ label: String(name), url: url.trim(), category: "all" });
+      }
+    });
+
+    // Highlights -> categories
+    for (const [k, arr] of Object.entries(raw.highlights || {})) {
+      if (!Array.isArray(arr)) continue;
+      const cat = mapHighlightKeyToCat(k);
+      for (const x of arr) {
+        if (!x || typeof x !== "object") continue;
+        push(cat, {
+          name: x.name || x.title || "Tipp",
+          summary: x.summary || x.details || x.area || "",
+          url: x.url || x.href || null,
+          sourceUrl: x.sourceUrl || x.source || null,
+          type: String(k || ""),
+        });
+      }
+    }
+
+    // Alpenlodge amenities -> category "alpenlodge"
+    if (raw.alpenlodge) {
+      const a = raw.alpenlodge;
+      const amen = Array.isArray(a.amenities) ? a.amenities : [];
+      if (amen.length) out.categories.alpenlodge = amen.map(x => ({
+        name: x.name || x.title || "Ausstattung",
+        summary: x.details || x.summary || "",
+        url: x.url || null,
+        sourceUrl: x.source || x.sourceUrl || null
+      }));
+    }
+
+    return out;
   }
 
-  const out = { categories: {}, directories: [], alpenlodge: raw.alpenlodge || null, meta: raw.meta || {} };
+  // ---------------- Format A (already normalized): categories + directories
+  if (raw.categories && typeof raw.categories === "object") {
+    // Avoid accidentally treating config JSON as knowledge:
+    // require at least one array-of-objects with a `name`/`title`, OR directories present.
+    const cats = raw.categories;
+    const hasCategoryItems = Object.values(cats).some((v) =>
+      Array.isArray(v) && v.some((it) => it && typeof it === "object" && (it.name || it.title))
+    );
+    const hasDirs = Array.isArray(raw.directories) && raw.directories.some((d) => d && (d.url || d.href));
 
-  // Directories from `sources`
-  if (raw.sources && typeof raw.sources === "object") {
-    for (const [key, v] of Object.entries(raw.sources)) {
-      if (!v) continue;
-      const label = v.label || key;
-      const url = v.url || v.source;
-      if (url) out.directories.push({ label, url, category: key });
+    if (hasCategoryItems || hasDirs) {
+      return {
+        categories: raw.categories,
+        directories: Array.isArray(raw.directories) ? raw.directories : [],
+        alpenlodge: raw.alpenlodge || null,
+        meta: raw.meta || {},
+      };
     }
   }
 
-  // Items -> categories
-  const items = Array.isArray(raw.items) ? raw.items : [];
-  const center = raw?.alpenlodge?.center || raw?.center || null;
-  const centerLat = Number(center?.lat);
-  const centerLon = Number(center?.lon);
+  // ---------------- Format B: items + sources/directories
+  const items = Array.isArray(raw.items) ? raw.items : null;
+  const sources = raw.sources && typeof raw.sources === "object" ? raw.sources : null;
+  const dirs = Array.isArray(raw.directories) ? raw.directories : null;
+
+  if (!items && !sources && !dirs) return null;
+
+  const out = { categories: {}, directories: [], alpenlodge: raw.alpenlodge || null, meta: raw.meta || {} };
 
   const push = (cat, it) => {
     if (!out.categories[cat]) out.categories[cat] = [];
     out.categories[cat].push(it);
   };
 
+  const mapSourceKeyToCat = (key) => {
+    const k = String(key || "").toLowerCase();
+    if (k === "ski_areas") return "ski";
+    if (k === "doctors_pharmacies") return "medical";
+    return k;
+  };
+
+  // Directories from `sources` (split multi-URL strings)
+  if (sources) {
+    for (const [key, v] of Object.entries(sources)) {
+      if (!v) continue;
+      const label = v.label || key;
+      const urlRaw = v.url || v.source;
+      const cat = mapSourceKeyToCat(key);
+
+      // One source entry can contain multiple URLs separated by "|"
+      const urls = splitHttpUrls(urlRaw);
+      if (urls.length) {
+        urls.forEach((u) => out.directories.push({ label, url: u, category: cat }));
+      } else if (typeof urlRaw === "string" && (urlRaw.startsWith("http://") || urlRaw.startsWith("https://"))) {
+        out.directories.push({ label, url: urlRaw.trim(), category: cat });
+      }
+    }
+  }
+
+  // Directories from `directories` array (various schemas)
+  if (dirs) {
+    for (const d0 of dirs) {
+      if (!d0 || typeof d0 !== "object") continue;
+      const url = d0.url || d0.href;
+      if (typeof url !== "string" || !(url.startsWith("http://") || url.startsWith("https://"))) continue;
+
+      const label = d0.label || d0.name || "Link";
+      let cat = d0.category || null;
+
+      const id = String(d0.id || "").toLowerCase();
+      const nameL = String(label || "").toLowerCase();
+      if (!cat) {
+        if (id.includes("event") || nameL.includes("event") || nameL.includes("veranstalt")) cat = "events";
+        else if (id.includes("gastro") || nameL.includes("gastro") || nameL.includes("kulinar") || nameL.includes("restaurant")) cat = "restaurants";
+        else if (id.includes("tour") || nameL.includes("tour") || nameL.includes("wandern") || nameL.includes("hike")) cat = "hiking";
+        else if (id.includes("ski") || nameL.includes("ski")) cat = "ski";
+        else cat = "all";
+      }
+
+      out.directories.push({ label: String(label), url: url.trim(), category: cat });
+    }
+  }
+
+  // Items -> categories
+  const center = raw?.alpenlodge?.center || raw?.center || null;
+  const centerLat = Number(center?.lat);
+  const centerLon = Number(center?.lon);
+
   const mapTypeToCat = (it) => {
     const type = String(it?.type || "").toLowerCase();
     const tags = Array.isArray(it?.tags) ? it.tags.map(t => String(t).toLowerCase()) : [];
+
     if (type.includes("ski")) return "ski";
+    if (type.includes("rodel") || type.includes("toboggan") || type.includes("sled")) return "rodel";
+
     if (type === "restaurant" || type === "cafe" || type === "bar") return "restaurants";
-    if (type === "pharmacy" || type === "doctor" || type === "medical") return "medical";
+
+    if (type === "pharmacy" || type === "doctor" || type === "medical" || type.includes("health")) return "medical";
     if (type === "event" || type.includes("event")) return "events";
+
     if (type.includes("wellness") || type.includes("pool") || type.includes("lake")) return "lakes_pools_wellness";
-    if (type.includes("hiking") || type.includes("trail") || type.includes("tour")) return "hiking";
+
+    if (type.includes("hiking") || type.includes("hike") || type.includes("trail") || type.includes("tour")) return "hiking";
     if (type.includes("rental") || type.includes("shop")) return "rental";
+
     if (tags.includes("bayern") || ["schliersee","spitzingsee","bayrischzell","tegernsee"].some(x=>tags.includes(x))) return "bayern_daytrips";
+
+    // Fallback: still keep "sight/nature/winter/..." as general activities
+    if (["sight","nature","winter","card"].some((k) => type.includes(k))) return "activities";
+
     return null;
   };
 
-  for (const it0 of items) {
+  for (const it0 of (Array.isArray(items) ? items : [])) {
     if (!it0 || typeof it0 !== "object") continue;
+
     const it = { ...it0 };
 
     // Normalize url fields
@@ -146,7 +450,6 @@ function normalizeKnowledge(raw) {
 
   return out;
 }
-
 
 // ---------------- Units mapping (Website <-> Smoobu IDs) ----------------
 // Used for: nicer booking/availability replies (names, categories, detail links)
@@ -379,15 +682,25 @@ function toISODate(input) {
 function detectCategory(userText) {
   const t = normText(userText);
   if (!t) return null;
+
   // Ski: allow partial stems to survive typos (skigebiet -> skigeb..., skigebiten).
   if (/(skigeb|ski\b|snowboard|piste|lift|skifahren|skilift)/i.test(t)) return "ski";
   if (/(schlitten|rodel|rodelbahn|sled|toboggan)/i.test(t)) return "rodel";
-  if (/(badesee|see\b|baden|schwimmen|strand|badestrand)/i.test(t)) return "lakes";
-  if (/(hallenbad|therme|wellness|spa|sauna|infrarot|pool)/i.test(t)) return "wellness_pools";
+
+  // Water + wellness are one combined category in the verified knowledge dumps
+  if (/(badesee|see\b|baden|schwimmen|strand|badestrand|wasser)/i.test(t)) return "lakes_pools_wellness";
+  if (/(hallenbad|therme|wellness|spa|sauna|infrarot|pool)/i.test(t)) return "lakes_pools_wellness";
+
   if (/(arzt|aerzte|apotheke|notdienst|notruf|krankenhaus|doctor|pharmacy)/i.test(t)) return "medical";
   if (/(restaurant|essen|kulinar|gasthof|cafe|bar|fruehstueck)/i.test(t)) return "restaurants";
   if (/(event|events|veranstaltung|veranstaltungen|sportevent|sportevents|kalender|termin)/i.test(t)) return "events";
-  if (/(wandern|wanderweg|hike|spazier|winterwander|schneeschuh|langlauf|trail)/i.test(t)) return "hiking";
+
+  if (/(wandern|wanderweg|hike|hiking|spazier|winterwander|schneeschuh|langlauf|trail|tour)/i.test(t)) return "hiking";
+  if (/(verleih|rental|mieten|skiverleih|ski\s*verleih|bike\s*verleih|fahrradverleih)/i.test(t)) return "rental";
+
+  if (/(familie|kinder|kids|spielplatz|kletter|kinderfreund|kind)/i.test(t)) return "family";
+  if (/(ausflug|aktivitaet|aktivitaeten|sehenswuerd|museum|festung|glas|manufaktur|was\s+tun)/i.test(t)) return "activities";
+
   if (/(schliersee|spitzing|spitzingsee|bayerischzell|tegernsee)/i.test(t)) return "bayern_daytrips";
   if (/(ausstattung|alpenlodge|haus|apartment|suite|fitness|wasch|trockner|laundry)/i.test(t)) return "alpenlodge";
   return null;
@@ -982,17 +1295,29 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
   if (!k) return { reply: "Wissen ist gerade nicht geladen.", links: [] };
 
   const mapTitle = {
-    skigebiete: "Skigebiete",
-    restaurants: "Restaurants",
-    lakes_pools_wellness: "Seen & Wellness",
-    activities: "Aktivitäten",
-    hikes: "Wanderungen",
-    family: "Familie & Kids",
-    shopping: "Shopping",
-    nightlife: "Nightlife",
-    events: "Events",
-    alpenlodge: "Alpenlodge (Ausstattung & Hausinfos)",
-  };
+  // canonical keys
+  ski: "Skigebiete",
+  rodel: "Rodeln",
+  restaurants: "Restaurants",
+  lakes_pools_wellness: "Seen & Wellness",
+  medical: "Ärzte & Apotheken",
+  events: "Events",
+  hiking: "Wandern",
+  rental: "Verleih & Shops",
+  bayern_daytrips: "Bayern – Tagesausflüge",
+  activities: "Ausflüge & Aktivitäten",
+  family: "Familie & Kids",
+  shopping: "Shopping",
+  nightlife: "Nightlife",
+  alpenlodge: "Alpenlodge (Ausstattung & Hausinfos)",
+
+  // legacy aliases (falls alte Keys in JSONs stehen)
+  skigebiete: "Skigebiete",
+  lakes: "Seen & Wellness",
+  wellness_pools: "Seen & Wellness",
+  ski_areas: "Skigebiete",
+  doctors_pharmacies: "Ärzte & Apotheken",
+};
   const title = mapTitle[cat] || "Tipps";
 
   const isEvents = cat === "events";
@@ -1030,8 +1355,8 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
   }
 
   if (!shown.length) {
-    lines.push("Dazu habe ich aktuell keine verifizierten Einträge in meiner Wissenssammlung.");
-    lines.push("Im Block **Infos & Links** findest du passende Link‑Tipps.");
+    lines.push("Dazu habe ich aktuell keine passenden Einträge.");
+    lines.push("Hier sind ein paar hilfreiche Links dazu:");
   } else {
     if (sessionId) {
       const sess = getSession(sessionId) || { ts: Date.now() };
@@ -1042,9 +1367,8 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
 
     shown.forEach((it, i) => {
       const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
-      const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? " — intern bestätigt" : "";
       const sum = stripUrlsFromText(it.summary);
-      lines.push(`${i + 1}) **${it.name}**${dist}${internal}`);
+      lines.push(`${i + 1}) **${it.name}**${dist}`);
       if (sum) lines.push(`   ${sum}`);
     });
 
@@ -1072,7 +1396,7 @@ function buildCategoryReply(cat, kRaw, radiusKm = 35, sessionId = "") {
   } else {
     // Fallback: directory links for this category
     const dirs = Array.isArray(k.directories)
-      ? k.directories.filter((d) => d && d.category === cat && isHttpUrl(d.url))
+      ? k.directories.filter((d) => d && isHttpUrl(d.url) && (d.category === cat || d.category === "all" || !d.category))
       : [];
     dirs.slice(0, 10).forEach((d) => addLink(d.label || "Link", d.url));
   }
@@ -1313,11 +1637,19 @@ app.get("/api/debug/knowledge", (req, res) => {
   const raw = loadKnowledge();
   const k = normalizeKnowledge(raw);
   if (!k) return res.status(500).json({ ok: false, error: "knowledge_not_loaded", path: KNOWLEDGE_FILE });
+
   const counts = {};
   for (const [cat, arr] of Object.entries(k.categories || {})) counts[cat] = Array.isArray(arr) ? arr.length : 0;
+
+  const dbg = raw && typeof raw === "object" ? (raw._debug || null) : null;
+
   res.json({
     ok: true,
     path: KNOWLEDGE_FILE,
+    mode: dbg?.mode || null,
+    base: dbg?.base || null,
+    files: dbg?.files || [],
+    skipped: dbg?.skipped || [],
     categories: counts,
     directories: Array.isArray(k.directories) ? k.directories.length : 0,
     hasAlpenlodge: Boolean(k.alpenlodge),
@@ -1447,9 +1779,6 @@ app.post("/api/smoobu/availability", smoobuAvailabilityHandler);
 app.post("/concierge/availability", rateLimit, smoobuAvailabilityHandler);
 app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
 
-// Dedicated Booking API (frontend <-> backend <-> Smoobu)
-app.post("/api/booking/availability", rateLimit, smoobuAvailabilityHandler);
-
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
 async function computeOfferPayloads(arrivalDate, departureDate, guests) {
@@ -1507,7 +1836,7 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
   return offerPayloads;
 }
 
-async function publicBookHandler(req, res) {
+app.post("/concierge/book", rateLimit, async (req, res) => {
   try {
     const body = req.body || {};
 
@@ -1616,50 +1945,6 @@ async function publicBookHandler(req, res) {
     // Some Smoobu responses return {id:...} others {reservationId:...}
     const bookingId = result?.id ?? result?.reservationId ?? null;
 
-    // --- Optional extras (best effort) ---
-    // Frontend may send extras like dogs; we attach them as price elements to the reservation.
-    const extras = (body && typeof body.extras === 'object' && body.extras) ? body.extras : {};
-    const extrasApplied = { dogs: 0, dogPricePerNight: 0, nights: 0, addedPriceElements: [], errors: [] };
-
-    try {
-      const dogs = Number(extras.dogs ?? 0);
-      const dogPricePerNight = Number(extras.dogPricePerNight ?? 0);
-
-      // nights between arrival and departure
-      const nights = (() => {
-        const a = new Date(String(offer.arrivalDate) + 'T00:00:00Z');
-        const d = new Date(String(offer.departureDate) + 'T00:00:00Z');
-        const ms = d.getTime() - a.getTime();
-        const n = Math.round(ms / 86400000);
-        return Number.isFinite(n) && n > 0 ? n : 0;
-      })();
-
-      extrasApplied.dogs = Number.isFinite(dogs) ? dogs : 0;
-      extrasApplied.dogPricePerNight = Number.isFinite(dogPricePerNight) ? dogPricePerNight : 0;
-      extrasApplied.nights = nights;
-
-      if (bookingId && extrasApplied.dogs > 0 && extrasApplied.dogPricePerNight > 0 && nights > 0) {
-        const amount = Math.round(extrasApplied.dogs * extrasApplied.dogPricePerNight * nights * 100) / 100;
-        const pePayload = {
-          name: `Hund (${extrasApplied.dogs}x)`,
-          amount,
-          tax: 0,
-          calculationType: 0,
-        };
-        try {
-          const peRes = await smoobuFetch(`/api/reservations/${encodeURIComponent(bookingId)}/price-elements`, {
-            method: 'POST',
-            jsonBody: pePayload,
-          });
-          extrasApplied.addedPriceElements.push({ type: 'dog', amount, response: peRes });
-        } catch (e) {
-          extrasApplied.errors.push({ type: 'dog', details: e?.details || { message: e?.message || String(e) } });
-        }
-      }
-    } catch (e) {
-      extrasApplied.errors.push({ type: 'extras', details: { message: e?.message || String(e) } });
-    }
-
     return res.status(200).json({
       ok: true,
       id: bookingId,
@@ -1671,7 +1956,6 @@ async function publicBookHandler(req, res) {
         price: offer.price,
         currency: offer.currency,
       },
-      extrasApplied,
       result,
     });
   } catch (err) {
@@ -1683,10 +1967,7 @@ async function publicBookHandler(req, res) {
     }
     res.status(status).json({ error: "booking_error", details });
   }
-}
-
-app.post("/concierge/book", rateLimit, publicBookHandler);
-app.post("/api/booking/book", rateLimit, publicBookHandler);
+});
 
 async function conciergeChatHandler(req, res) {
   try {
@@ -1726,7 +2007,9 @@ async function conciergeChatHandler(req, res) {
       const sys = [
         "Du bist der Alpenlodge Concierge.",
         "Antworten kurz, freundlich und konkret.",
-        "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.",
+        "Keine Meta-Kommentare: vermeide Wörter wie \"verifiziert\", \"Positivliste\", \"Quelle\", \"laut\".",
+        "Wenn der User einen Witz möchte: gerne kurz & passend (ohne beleidigende Inhalte).",
+        "Wenn die Frage nach Verfügbarkeit/Preis klingt, frage nach: Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer.",
         "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
         `Seite: ${page}. Locale: ${locale}.`,
       ].join(" ");
@@ -1754,11 +2037,9 @@ async function conciergeChatHandler(req, res) {
         const it = list[sel - 1];
         if (it) {
           const dist = typeof it.approx_km_road === "number" ? ` (${it.approx_km_road.toFixed(1)} km)` : "";
-          const internal = (it.sourceUrl && String(it.sourceUrl).toUpperCase().startsWith("INTERNAL")) ? "intern bestätigt" : "";
           const replyLines = [
             `**${it.name}${dist}**`,
             it.summary ? stripUrlsFromText(it.summary) : "",
-            internal ? `(${internal})` : "",
           ].filter(Boolean);
           const links = [];
           const u = pickFirstHttpUrl(it.url, it.sourceUrl);
@@ -1769,23 +2050,20 @@ async function conciergeChatHandler(req, res) {
     }
 
 
-    // Booking / availability / prices (Smoobu) — OPTIONAL.
-    // Default: disabled (Concierge should be Auskunft only). Enable via env: CONCIERGE_ENABLE_BOOKING_CHAT=true
-    if (CONCIERGE_ENABLE_BOOKING_CHAT) {
-      try {
-        const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
-        if (booking) return res.json(booking);
-      } catch (err) {
-        console.error("❌ Booking flow error:", err);
-        const isEn = String(locale || "").toLowerCase().startsWith("en");
-        return res.status(err.status || 500).json({
-          reply: isEn
-            ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
-            : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
-          error: "booking_error",
-          details: err.details || null,
-        });
-      }
+    // Booking / availability / prices (Smoobu) — deterministic, no hallucinations
+    try {
+      const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
+      if (booking) return res.json(booking);
+    } catch (err) {
+      console.error("❌ Booking flow error:", err);
+      const isEn = String(locale || "").toLowerCase().startsWith("en");
+      return res.status(err.status || 500).json({
+        reply: isEn
+          ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
+          : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
+        error: "booking_error",
+        details: err.details || null,
+      });
     }
 
 // Knowledge-first (NO hallucinations): lists/recommendations come from knowledge/verified.json
@@ -1821,7 +2099,8 @@ async function conciergeChatHandler(req, res) {
     const hardRules = [
       "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
       "Wenn du etwas nicht sicher weißt, sag das ehrlich und biete passende Links an (falls vorhanden).",
-      "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus dem verifizierten Knowledge (inkl. Links). Keine Rückfragen.",
+      "Keine Meta-Kommentare: benutze keine Wörter wie \"verifiziert\", \"Positivliste\", \"Quelle\", \"laut\".",
+      "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus der Knowledge-Liste (inkl. Links). Keine Rückfragen.",
     ].join(" ");
     const instructions = `${hardRules} ${baseSys}`.trim();
     const input = messages

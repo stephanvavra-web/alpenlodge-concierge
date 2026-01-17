@@ -52,3 +52,10 @@ POST `/concierge/book`
 
 ## Admin Token – woher?
 Der `ADMIN_TOKEN` ist **kein** Smoobu-Token. Das ist ein von dir erzeugtes Secret zum Absichern von Admin-Endpoints.
+
+
+## Frontend Booking API (ohne Concierge Chat)
+- POST /api/booking/availability (alias zu /concierge/availability)
+- POST /api/booking/book (alias zu /concierge/book)
+
+Hinweis: Concierge-Chat Booking ist standardmäßig deaktiviert. Zum Aktivieren: `CONCIERGE_ENABLE_BOOKING_CHAT=true`.
