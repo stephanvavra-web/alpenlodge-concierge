@@ -1368,12 +1368,25 @@ async function smoobuAvailabilityHandler(req, res) {
     }
 
     const { arrivalDate, departureDate, apartments, guests, discountCode } = req.body || {};
-    const aIso = toISODate(arrivalDate);
-    const dIso = toISODate(departureDate);
+    let aIso = toISODate(arrivalDate);
+    let dIso = toISODate(departureDate);
     if (!aIso || !dIso) {
       return res.status(400).json({
         error: "arrivalDate and departureDate required",
         hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026",
+      });
+    }
+
+    // Defensive: ensure chronological order (prevents Smoobu validation errors when dates are swapped)
+    if (aIso > dIso) {
+      const tmp = aIso;
+      aIso = dIso;
+      dIso = tmp;
+    }
+    if (aIso === dIso) {
+      return res.status(400).json({
+        error: "invalid_date_range",
+        hint: "departureDate must be after arrivalDate (mindestens 1 Nacht).",
       });
     }
 
@@ -1453,12 +1466,25 @@ app.post("/api/booking/availability", rateLimit, smoobuAvailabilityHandler);
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
 async function computeOfferPayloads(arrivalDate, departureDate, guests) {
-  const aIso = toISODate(arrivalDate);
-  const dIso = toISODate(departureDate);
+  let aIso = toISODate(arrivalDate);
+  let dIso = toISODate(departureDate);
   if (!aIso || !dIso) {
     const err = new Error("Invalid date format");
     err.status = 400;
     err.details = { hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026" };
+    throw err;
+  }
+
+  // Defensive: ensure chronological order (prevents swapped date ranges)
+  if (aIso > dIso) {
+    const tmp = aIso;
+    aIso = dIso;
+    dIso = tmp;
+  }
+  if (aIso === dIso) {
+    const err = new Error("Invalid date range");
+    err.status = 400;
+    err.details = { error: "invalid_date_range", hint: "departureDate must be after arrivalDate (mindestens 1 Nacht)." };
     throw err;
   }
 
@@ -1579,6 +1605,21 @@ async function publicBookHandler(req, res) {
     const adults = Number(body.adults ?? offer.guests);
     const children = Number(body.children ?? 0);
     const guests = Number(body.guests ?? (adults + children) ?? offer.guests);
+
+    // Defensive: normalize offer date order (prevents "departure before arrival" validation errors)
+    if (offer && typeof offer.arrivalDate === 'string' && typeof offer.departureDate === 'string') {
+      if (offer.arrivalDate > offer.departureDate) {
+        const tmp = offer.arrivalDate;
+        offer.arrivalDate = offer.departureDate;
+        offer.departureDate = tmp;
+      }
+      if (offer.arrivalDate === offer.departureDate) {
+        return res.status(400).json({
+          error: 'invalid_date_range',
+          hint: 'departureDate must be after arrivalDate (mindestens 1 Nacht).',
+        });
+      }
+    }
 
     // --- Build Smoobu reservation payload ---
     const reservationPayload = {
