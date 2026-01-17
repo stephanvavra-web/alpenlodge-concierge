@@ -1606,19 +1606,38 @@ async function publicBookHandler(req, res) {
     const children = Number(body.children ?? 0);
     const guests = Number(body.guests ?? (adults + children) ?? offer.guests);
 
-    // Defensive: normalize offer date order (prevents "departure before arrival" validation errors)
-    if (offer && typeof offer.arrivalDate === 'string' && typeof offer.departureDate === 'string') {
-      if (offer.arrivalDate > offer.departureDate) {
-        const tmp = offer.arrivalDate;
-        offer.arrivalDate = offer.departureDate;
-        offer.departureDate = tmp;
-      }
-      if (offer.arrivalDate === offer.departureDate) {
+    // Defensive: normalize offer date order + format (prevents Smoobu validation errors)
+    // We accept offer tokens from older versions too (arrival/departure vs arrivalDate/departureDate)
+    if (offer) {
+      const rawArrival = offer.arrivalDate ?? offer.arrival ?? "";
+      const rawDeparture = offer.departureDate ?? offer.departure ?? "";
+
+      let aIso = toISODate(rawArrival);
+      let dIso = toISODate(rawDeparture);
+
+      if (!aIso || !dIso) {
         return res.status(400).json({
-          error: 'invalid_date_range',
-          hint: 'departureDate must be after arrivalDate (mindestens 1 Nacht).',
+          error: "invalid_date_format",
+          hint: "arrival/departure must be YYYY-MM-DD (or a parseable date like 01.02.2026).",
+          received: { arrival: rawArrival || null, departure: rawDeparture || null },
         });
       }
+
+      if (aIso > dIso) {
+        const tmp = aIso;
+        aIso = dIso;
+        dIso = tmp;
+      }
+
+      if (aIso === dIso) {
+        return res.status(400).json({
+          error: "invalid_date_range",
+          hint: "departureDate must be after arrivalDate (mindestens 1 Nacht).",
+        });
+      }
+
+      offer.arrivalDate = aIso;
+      offer.departureDate = dIso;
     }
 
     // --- Build Smoobu reservation payload ---
