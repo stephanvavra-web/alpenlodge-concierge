@@ -1592,13 +1592,28 @@ async function publicBookHandler(req, res) {
     const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
     const email = typeof body.email === "string" ? body.email.trim() : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+    // Some Smoobu setups (incl. booking tool validation settings) require
+    // address/country/phone for direct bookings.
+    // We keep these as simple strings (frontend can provide a single address line).
+    const address = typeof body.address === "string" ? body.address.trim() : "";
+    const country = typeof body.country === "string" ? body.country.trim() : "";
     const language = typeof body.language === "string" ? body.language.trim() : "de";
     const notice = typeof body.notice === "string" ? body.notice.trim() : "";
 
-    if (!firstName || !lastName || !email) {
+    // Guest validation (frontend should already enforce this, but keep backend strict).
+    const missing = [];
+    if (!firstName) missing.push("firstName");
+    if (!lastName) missing.push("lastName");
+    if (!email) missing.push("email");
+    if (!phone) missing.push("phone");
+    if (!address) missing.push("address");
+    if (!country) missing.push("country");
+
+    if (missing.length) {
       return res.status(400).json({
         error: "missing_guest_fields",
-        hint: "Missing: firstName, lastName, email (phone optional).",
+        missing,
+        hint: "Provide guest fields: firstName, lastName, email, phone, address, country.",
       });
     }
 
@@ -1654,6 +1669,8 @@ async function publicBookHandler(req, res) {
       lastName,
       email,
       phone,
+      address,
+      country,
       language,
 
       // Guests

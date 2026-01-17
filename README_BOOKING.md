@@ -43,13 +43,17 @@ POST `/concierge/book`
   "lastName":"Mustermann",
   "email":"max@example.com",
   "phone":"+43 123 456",
+  "address":"Musterstraße 1, 12345 Musterstadt",
+  "country":"DE",
   "adults":2,
   "children":0,
   "language":"de",
   "notice":"Bitte Babybett, wenn möglich."
 }
 
-Hinweis: Die interne Weiterleitung an Smoobu verwendet `arrivalDate`/`departureDate` (wie in der offiziellen Smoobu API Doku), nicht `arrival`/`departure`.
+Hinweis: Je nach Smoobu-Account/Booking-Tool Einstellungen können **phone/address/country** Pflichtfelder sein. Wenn Smoobu mit `Failed validation` antwortet, prüfe die Felder.
+
+Hinweis 2: Die interne Weiterleitung an Smoobu verwendet `arrivalDate`/`departureDate` (wie in der offiziellen Smoobu API Doku), nicht `arrival`/`departure`.
 ```
 
 ## Admin Token – woher?
