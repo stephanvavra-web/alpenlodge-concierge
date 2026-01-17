@@ -48,6 +48,8 @@ POST `/concierge/book`
   "language":"de",
   "notice":"Bitte Babybett, wenn möglich."
 }
+
+Hinweis: Die interne Weiterleitung an Smoobu verwendet `arrivalDate`/`departureDate` (wie in der offiziellen Smoobu API Doku), nicht `arrival`/`departure`.
 ```
 
 ## Admin Token – woher?

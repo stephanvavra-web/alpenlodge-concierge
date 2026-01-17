@@ -1642,9 +1642,10 @@ async function publicBookHandler(req, res) {
 
     // --- Build Smoobu reservation payload ---
     const reservationPayload = {
-      // Smoobu expects YYYY-MM-DD
-      arrival: offer.arrivalDate,
-      departure: offer.departureDate,
+      // Smoobu API expects arrivalDate/departureDate (YYYY-MM-DD)
+      // Docs: https://docs.smoobu.com/#create-booking
+      arrivalDate: offer.arrivalDate,
+      departureDate: offer.departureDate,
       apartmentId: offer.apartmentId,
       channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
 
@@ -1661,7 +1662,6 @@ async function publicBookHandler(req, res) {
 
       // Price (best effort; Smoobu may recalc)
       price: offer.price,
-      currency: offer.currency,
 
       // Internal note (shows up for you, not the guest)
       notice,
