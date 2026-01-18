@@ -1,25 +1,43 @@
-# Stripe Webhook → Smoobu Booking (v57)
+# v57 — Stripe Webhook → Smoobu Booking (DB)
 
-This bundle contains the backend files required to run:
-- Stripe PaymentIntent creation
-- Stripe Webhook (POST only) with signature verification
-- Idempotent booking into Smoobu after payment success
-- Postgres persistence
+## Endpoints
+- `GET  /api/payment/stripe/config`
+- `POST /api/payment/stripe/create-intent`
+- `POST /api/payment/stripe/webhook` (POST only)
+- `GET  /api/payment/stripe/status/:paymentId`
+- `GET  /api/debug/db`
 
-## Required ENV (Render)
-DATABASE_URL
-SMOOBU_API_KEY
-SMOOBU_CUSTOMER_ID
-BOOKING_TOKEN_SECRET
+## Render ENV (required)
+Database:
+- `DATABASE_URL`
 
-STRIPE_SECRET_KEY
-STRIPE_PUBLISHABLE_KEY
-STRIPE_WEBHOOK_SECRET
+Smoobu:
+- `SMOOBU_API_KEY`
+- `SMOOBU_CUSTOMER_ID`
+- `BOOKING_TOKEN_SECRET`
 
-## Stripe Webhook URL
-https://alpenlodge-concierge.onrender.com/api/payment/stripe/webhook
+Stripe:
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_WEBHOOK_SECRET`
 
-Events:
-- payment_intent.succeeded
-- payment_intent.payment_failed
-- payment_intent.canceled
+Optional:
+- `STRIPE_CURRENCY=eur`
+- `DB_SSL=true` (or `PGSSLMODE=require`)
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+
+Optional:
+- `STRIPE_CURRENCY=eur`
+- `DB_SSL=true` or `PGSSLMODE=require`
+
+## Stripe dashboard
+Webhook endpoint URL:
+`https://alpenlodge-concierge.onrender.com/api/payment/stripe/webhook`
+
+Select events:
+- `payment_intent.succeeded`
+- `payment_intent.payment_failed`
+- `payment_intent.canceled`
