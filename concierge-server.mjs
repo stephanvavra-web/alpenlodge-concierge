@@ -3,12 +3,17 @@ import cors from "cors";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import pg from "pg";
 import Stripe from "stripe";
 
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
+
+// Helpful human-visible build marker (shows up in /api/debug/version and chat snapshot meta).
+// You can override via Render env var APP_BUILD.
+const APP_BUILD = process.env.APP_BUILD || "v53";
 
 // Resolve paths for local files (ESM-safe)
 const __filename = fileURLToPath(import.meta.url);
@@ -23,6 +28,34 @@ const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random s
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
 const SMOOBU_BASE = "https://login.smoobu.com";
+
+// Optional: protect your Smoobu webhook endpoint with a shared secret token.
+// Configure your Smoobu webhook URL like: https://.../api/smoobu/webhook?token=YOUR_TOKEN
+const SMOOBU_WEBHOOK_TOKEN = process.env.SMOOBU_WEBHOOK_TOKEN || "";
+
+// ---------------- Chat Snapshot (chat.alpenlodge.info) ----------------
+// Public, machine-readable availability + daily prices for the next N days.
+// Used by voice agents / GPT actions to compute period prices deterministically.
+const CHAT_SNAPSHOT_DAYS_DEFAULT = Number(process.env.CHAT_SNAPSHOT_DAYS || '100');
+const CHAT_SNAPSHOT_REFRESH_MODE = String(process.env.CHAT_SNAPSHOT_REFRESH_MODE || 'webhook').toLowerCase();
+const CHAT_SNAPSHOT_REFRESH_HOURS = Number(
+  process.env.CHAT_SNAPSHOT_REFRESH_HOURS || (CHAT_SNAPSHOT_REFRESH_MODE === 'webhook' ? '24' : '3')
+);
+const CHAT_SNAPSHOT_TTL_MS = Math.max(1, CHAT_SNAPSHOT_REFRESH_HOURS) * 60 * 60 * 1000;
+const CHAT_SNAPSHOT_APT_DETAILS_TTL_HOURS = Number(process.env.CHAT_SNAPSHOT_APT_DETAILS_TTL_HOURS || '24');
+const CHAT_SNAPSHOT_APT_DETAILS_TTL_MS = Math.max(1, CHAT_SNAPSHOT_APT_DETAILS_TTL_HOURS) * 60 * 60 * 1000;
+
+// Where to write the generated /chat/index.html + snapshot.json (default: /tmp).
+// This makes the chat feed usable as a static file too (still served under the URL path /chat/...).
+const CHAT_STATIC_DIR = process.env.CHAT_STATIC_DIR || path.join(os.tmpdir(), 'alpenlodge_chat');
+const CHAT_STATIC_WRITE = String(process.env.CHAT_STATIC_WRITE || 'true').toLowerCase() !== 'false';
+const CHAT_STATIC_SERVE = String(process.env.CHAT_STATIC_SERVE || 'true').toLowerCase() !== 'false';
+let _chatStaticFiles = { ok: false, ts: 0, dir: CHAT_STATIC_DIR, error: null };
+
+// Tracks the last Smoobu webhook we received (no secrets).
+// Useful for debugging and to explain freshness in the chat feed.
+const _smoobuWebhookState = { ts: 0, action: null, user: null };
+
 
 // ---------------- Database (optional) ----------------
 // Used to persist booking/payment state (needed for Stripe flow).
@@ -557,6 +590,303 @@ function detectUnitCategoryFilter(userText) {
   if (t.includes("apartment") || t.includes("apartments")) return "Apartment";
   return null;
 }
+
+// ---------------- Chat Snapshot Builder ----------------
+// Generates a public snapshot with: unit descriptions + per-day availability + per-day prices.
+// Refresh strategy:
+// - cache in-memory for CHAT_SNAPSHOT_TTL_MS (default: 3h)
+// - if stale and we still have a previous snapshot, we serve stale immediately and refresh in background
+
+const _chatSnapshotCache = { ts: 0, ttlMs: CHAT_SNAPSHOT_TTL_MS, value: null, inFlight: null };
+const _aptDetailsCache = new Map(); // apartmentId -> {ts, ttlMs, value}
+
+function clampInt(v, min, max, fallback) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
+}
+
+function isoToday(tz = 'Europe/Vienna') {
+  const ymd = ymdInTimeZone(new Date(), tz);
+  if (!ymd) return null;
+  return `${ymd.y}-${String(ymd.m).padStart(2, '0')}-${String(ymd.d).padStart(2, '0')}`;
+}
+
+function listIsoDays(startIso, days) {
+  const out = [];
+  for (let i = 0; i < days; i += 1) out.push(addDaysISO(startIso, i));
+  return out;
+}
+
+async function getSmoobuApartmentsListCached() {
+  const cached = cacheGet(cache.apartments);
+  if (cached) return cached;
+  const data = await smoobuFetch('/api/apartments', { method: 'GET', timeoutMs: 15000 });
+  cache.apartments.ts = now();
+  cache.apartments.value = data;
+  return data;
+}
+
+async function getSmoobuApartmentDetailsCached(apartmentId) {
+  const id = Number(apartmentId);
+  if (!Number.isFinite(id)) return null;
+  const now = Date.now();
+  const hit = _aptDetailsCache.get(id);
+  if (hit && now - hit.ts < hit.ttlMs) return hit.value;
+  const data = await smoobuFetch(`/api/apartments/${id}`, { method: 'GET', timeoutMs: 15000 });
+  _aptDetailsCache.set(id, { ts: now, ttlMs: CHAT_SNAPSHOT_APT_DETAILS_TTL_MS, value: data });
+  return data;
+}
+
+function extractAmenityNames(details) {
+  const out = [];
+  const add = (x) => {
+    const s = String(x || '').trim();
+    if (!s) return;
+    if (!out.includes(s)) out.push(s);
+  };
+
+  const lists = [details?.amenities, details?.equipments, details?.equipment, details?.amenity];
+  for (const l of lists) {
+    if (!Array.isArray(l)) continue;
+    for (const it of l) {
+      if (!it) continue;
+      if (typeof it === 'string') add(it);
+      else add(it.name || it.title || it.label);
+    }
+  }
+
+  return out;
+}
+
+function buildApartmentDescription(details) {
+  if (!details || typeof details !== 'object') return { text: '', fields: {} };
+
+  const rooms = details.rooms && typeof details.rooms === 'object' ? details.rooms : {};
+  const typeName = details?.type?.name || details?.type || '';
+
+  const maxOcc = rooms.maxOccupancy ?? rooms.max_occupancy ?? rooms.max_occupancy_persons ?? null;
+  const bedrooms = rooms.bedrooms ?? rooms.bedroom ?? null;
+  const bathrooms = rooms.bathrooms ?? rooms.bathroom ?? null;
+
+  const currency = details.currency || details?.price?.currency || null;
+  const priceMin = details?.price?.minimal ?? details?.price?.min ?? null;
+  const priceMax = details?.price?.maximal ?? details?.price?.max ?? null;
+
+  const amenities = extractAmenityNames(details);
+
+  const fields = {
+    type: typeName || null,
+    maxOccupancy: Number.isFinite(Number(maxOcc)) ? Number(maxOcc) : null,
+    bedrooms: Number.isFinite(Number(bedrooms)) ? Number(bedrooms) : null,
+    bathrooms: Number.isFinite(Number(bathrooms)) ? Number(bathrooms) : null,
+    currency,
+    priceMin,
+    priceMax,
+    amenities,
+  };
+
+  const parts = [];
+  if (fields.type) parts.push(`Typ: ${fields.type}`);
+  if (fields.maxOccupancy) parts.push(`Max. Personen: ${fields.maxOccupancy}`);
+  if (fields.bedrooms) parts.push(`Schlafzimmer: ${fields.bedrooms}`);
+  if (fields.bathrooms) parts.push(`Bäder: ${fields.bathrooms}`);
+  if (fields.priceMin || fields.priceMax) parts.push(`Preisrahmen (Smoobu): ${fields.priceMin ?? '?'}–${fields.priceMax ?? '?'} ${fields.currency ?? ''}`.trim());
+  if (amenities.length) parts.push(`Ausstattung (Auszug): ${amenities.slice(0, 20).join(', ')}${amenities.length > 20 ? ' …' : ''}`);
+
+  return { text: parts.join(' | '), fields };
+}
+
+async function buildChatSnapshot({ days } = {}) {
+  const d = clampInt(days ?? CHAT_SNAPSHOT_DAYS_DEFAULT, 1, 365, CHAT_SNAPSHOT_DAYS_DEFAULT);
+  const start = isoToday('Europe/Vienna');
+  if (!start) throw new Error('date_error');
+  const end = addDaysISO(start, d - 1);
+
+  const list = await getSmoobuApartmentsListCached();
+  const apartments = Array.isArray(list?.apartments) ? list.apartments : [];
+  const apartmentIds = apartments.map((a) => Number(a?.id)).filter((x) => Number.isFinite(x));
+
+  // Load daily rates (price + availability) for the whole range and all apartments.
+  const rates = await smoobuFetch('/api/rates', {
+    method: 'GET',
+    timeoutMs: 25000,
+    query: { start_date: start, end_date: end, apartments: apartmentIds },
+  });
+
+  const daysList = listIsoDays(start, d);
+  const ratesData = rates?.data && typeof rates.data === 'object' ? rates.data : rates;
+
+  // Load apartment details (for descriptions) with a small concurrency limit.
+  const detailsById = new Map();
+  const concurrency = 4;
+  let i = 0;
+  const worker = async () => {
+    while (i < apartmentIds.length) {
+      const id = apartmentIds[i];
+      i += 1;
+      try {
+        const det = await getSmoobuApartmentDetailsCached(id);
+        if (det) detailsById.set(id, det);
+      } catch (e) {
+        // keep going – description is best-effort
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, apartmentIds.length) }, worker));
+
+  const units = apartmentIds.map((id) => {
+    const apt = apartments.find((a) => Number(a?.id) === id) || {};
+    const unitFromMap = findUnitByApartmentId(id);
+    const det = detailsById.get(id) || null;
+    const desc = buildApartmentDescription(det);
+
+    const ratesForId = (ratesData?.[id] || ratesData?.[String(id)] || null) ?? {};
+    const calendar = daysList.map((date) => {
+      const r = ratesForId?.[date] || null;
+      const available = typeof r?.available === 'boolean' ? r.available : null;
+      const price = r?.price ?? null;
+      const minStay = r?.min_length_of_stay ?? r?.minLengthOfStay ?? null;
+      return { date, available, price, min_length_of_stay: minStay };
+    });
+
+    return {
+      apartment_id: id,
+      name: apt?.name || unitFromMap?.name || `Apartment ${id}`,
+      unit_id: unitFromMap?.unit_id || unitFromMap?.slug || null,
+      category: unitFromMap?.category || null,
+      details_url: unitFromMap?.details_url || unitFromMap?.url || null,
+      description: desc.text,
+      description_fields: desc.fields,
+      calendar,
+    };
+  });
+
+  return {
+    ok: true,
+    meta: {
+      build: APP_BUILD,
+      generatedAt: new Date().toISOString(),
+      refreshMode: CHAT_SNAPSHOT_REFRESH_MODE,
+      refreshHours: CHAT_SNAPSHOT_REFRESH_HOURS,
+      lastWebhook: _smoobuWebhookState.action
+        ? { action: _smoobuWebhookState.action, ts: new Date(_smoobuWebhookState.ts).toISOString() }
+        : null,
+      timezone: 'Europe/Vienna',
+      start_date: start,
+      end_date: end,
+      days: d,
+      source: 'smoobu:/api/rates',
+    },
+    units,
+  };
+}
+
+async function writeChatStaticFiles(snapshot) {
+  if (!CHAT_STATIC_WRITE) return;
+  try {
+    fs.mkdirSync(CHAT_STATIC_DIR, { recursive: true });
+  } catch {}
+  try {
+    const html = buildChatIndexHtml(snapshot);
+    const jsonPretty = JSON.stringify(snapshot, null, 2);
+    const jsonMin = JSON.stringify(snapshot);
+    fs.writeFileSync(path.join(CHAT_STATIC_DIR, 'index.html'), html, 'utf8');
+    fs.writeFileSync(path.join(CHAT_STATIC_DIR, 'snapshot.json'), jsonPretty, 'utf8');
+    fs.writeFileSync(path.join(CHAT_STATIC_DIR, 'snapshot.min.json'), jsonMin, 'utf8');
+    _chatStaticFiles = { ok: true, ts: Date.now(), dir: CHAT_STATIC_DIR, error: null };
+  } catch (e) {
+    _chatStaticFiles = { ok: false, ts: Date.now(), dir: CHAT_STATIC_DIR, error: String(e?.message || e) };
+    console.error('⚠️ chat static write failed:', _chatStaticFiles.error);
+  }
+}
+
+
+async function refreshChatSnapshot({ days } = {}) {
+  const snap = await buildChatSnapshot({ days });
+  _chatSnapshotCache.ts = Date.now();
+  _chatSnapshotCache.value = snap;
+  // Also persist as static files (index.html + snapshot.json) for /chat/
+  try {
+    await writeChatStaticFiles(snap);
+  } catch {}
+  return snap;
+}
+
+async function getChatSnapshotCached({ days } = {}) {
+  const d = clampInt(days ?? CHAT_SNAPSHOT_DAYS_DEFAULT, 1, 365, CHAT_SNAPSHOT_DAYS_DEFAULT);
+  const now = Date.now();
+  const age = now - _chatSnapshotCache.ts;
+
+  // Fresh enough
+  if (_chatSnapshotCache.value && age < _chatSnapshotCache.ttlMs) return _chatSnapshotCache.value;
+
+  // If we have stale data, serve it immediately but refresh in background.
+  if (_chatSnapshotCache.value) {
+    if (!_chatSnapshotCache.inFlight) {
+      _chatSnapshotCache.inFlight = refreshChatSnapshot({ days: d })
+        .catch((e) => {
+          console.error('⚠️ chat snapshot refresh failed:', e?.message || e);
+          return null;
+        })
+        .finally(() => {
+          _chatSnapshotCache.inFlight = null;
+        });
+    }
+    return { ..._chatSnapshotCache.value, meta: { ..._chatSnapshotCache.value.meta, stale: true } };
+  }
+
+  // Cold start: block until we have data
+  if (!_chatSnapshotCache.inFlight) {
+    _chatSnapshotCache.inFlight = refreshChatSnapshot({ days: d }).finally(() => {
+      _chatSnapshotCache.inFlight = null;
+    });
+  }
+  return await _chatSnapshotCache.inFlight;
+}
+
+// --- Event-driven refresh helpers (Smoobu Webhooks) ---
+// We debounce rebuilds to avoid hammering Smoobu when many events come in.
+const CHAT_SNAPSHOT_WEBHOOK_DEBOUNCE_MS = Number(process.env.CHAT_SNAPSHOT_WEBHOOK_DEBOUNCE_MS || '4000');
+const _chatSnapshotRebuild = {
+  timer: null,
+  inFlight: false,
+  pending: false,
+  lastReason: null,
+  lastTriggerAt: 0,
+};
+
+function scheduleChatSnapshotRefresh(reason = 'event') {
+  _chatSnapshotRebuild.lastReason = String(reason || 'event');
+  _chatSnapshotRebuild.lastTriggerAt = Date.now();
+  if (_chatSnapshotRebuild.timer) return; // already scheduled
+
+  _chatSnapshotRebuild.timer = setTimeout(async () => {
+    _chatSnapshotRebuild.timer = null;
+
+    if (_chatSnapshotRebuild.inFlight) {
+      _chatSnapshotRebuild.pending = true;
+      return;
+    }
+
+    _chatSnapshotRebuild.inFlight = true;
+    try {
+      await refreshChatSnapshot({ days: CHAT_SNAPSHOT_DAYS_DEFAULT });
+    } catch (e) {
+      console.error('⚠️ chat snapshot webhook refresh failed:', e?.message || e);
+    } finally {
+      _chatSnapshotRebuild.inFlight = false;
+      if (_chatSnapshotRebuild.pending) {
+        _chatSnapshotRebuild.pending = false;
+        scheduleChatSnapshotRefresh('pending');
+      }
+    }
+  }, Math.max(0, CHAT_SNAPSHOT_WEBHOOK_DEBOUNCE_MS));
+}
+
 
 
 
@@ -1672,6 +2002,197 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// ---------------- Smoobu Webhook (event driven) ----------------
+// Configure in Smoobu API settings: https://.../api/smoobu/webhook?token=YOUR_TOKEN
+// Smoobu sends actions like: updateRates, newReservation, updateReservation, cancelReservation, deleteReservation.
+// We use this to refresh the /chat snapshot immediately after calendar/price changes.
+app.post('/api/smoobu/webhook', (req, res) => {
+  try {
+    const token = String(req.query?.token || '').trim();
+    if (SMOOBU_WEBHOOK_TOKEN && token !== SMOOBU_WEBHOOK_TOKEN) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+
+    const body = req.body || {};
+    const action = String(body.action || '').trim();
+    const user = body.user ?? null;
+
+    _smoobuWebhookState.ts = Date.now();
+    _smoobuWebhookState.action = action || null;
+    _smoobuWebhookState.user = user;
+
+    const triggers = new Set([
+      'updateRates',
+      'newReservation',
+      'updateReservation',
+      'cancelReservation',
+      'deleteReservation',
+      'priceElementCreated',
+      'priceElementUpdated',
+      'priceElementDeleted',
+      'onlineCheckInUpdate',
+      'newMessage',
+    ]);
+
+    if (triggers.has(action)) {
+      scheduleChatSnapshotRefresh(`smoobu_webhook:${action}`);
+    }
+
+    // Respond quickly: the heavy work happens async.
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: 'webhook_error' });
+  }
+});
+
+// Serve pre-generated chat files (index.html + snapshot.json) under /chat/...
+// Files are written whenever the chat snapshot is refreshed (webhook / on-demand / interval).
+if (CHAT_STATIC_SERVE) {
+  try {
+    fs.mkdirSync(CHAT_STATIC_DIR, { recursive: true });
+  } catch {}
+  app.use('/chat', express.static(CHAT_STATIC_DIR, {
+    index: 'index.html',
+    etag: false,
+    fallthrough: true,
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'no-store');
+    },
+  }));
+}
+
+// ---------------- chat.alpenlodge.info ----------------
+// Public index + machine-readable snapshot for the next 100 days (default).
+// This is intended for GPT / voice agents to read current prices & availability deterministically.
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildChatIndexHtml(snapshot) {
+  const snapPretty = JSON.stringify(snapshot, null, 2);
+  // For the JSON-in-script-tag we replace '<' to prevent accidental </script> breaks.
+  const snapScript = snapPretty.replace(/</g, '\u003c');
+
+  const meta = snapshot?.meta || {};
+  const title = 'Alpenlodge — Chat Data Feed';
+  const updated = meta.generatedAt || '';
+  const tz = meta.timezone || 'Europe/Vienna';
+  const days = meta.days || CHAT_SNAPSHOT_DAYS_DEFAULT;
+  const start = meta.start_date || '';
+  const end = meta.end_date || '';
+  const stale = meta.stale ? ' (stale – refresh in progress)' : '';
+
+  const hint = (() => {
+    if (CHAT_SNAPSHOT_REFRESH_MODE === 'interval') {
+      return `Hinweis: Dieser Snapshot wird serverseitig gecached und ca. alle <strong>${escapeHtml(CHAT_SNAPSHOT_REFRESH_HOURS)}</strong> Stunden aktualisiert.`;
+    }
+    if (CHAT_SNAPSHOT_REFRESH_MODE === 'hybrid') {
+      return `Hinweis: Dieser Snapshot wird per <strong>Smoobu Webhooks</strong> aktualisiert und zusätzlich ca. alle <strong>${escapeHtml(CHAT_SNAPSHOT_REFRESH_HOURS)}</strong> Stunden refreshed (Fallback).`;
+    }
+    // webhook (default)
+    return `Hinweis: Dieser Snapshot wird primär per <strong>Smoobu Webhooks</strong> aktualisiert. Fallback: On-Demand Refresh, wenn die Daten älter als <strong>${escapeHtml(CHAT_SNAPSHOT_REFRESH_HOURS)}</strong> Stunden sind.`;
+  })();
+
+  return `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>
+    body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin:24px; line-height:1.5; max-width: 1100px;}
+    code,pre{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+    pre{padding:14px; background:#0b0f1a; color:#e8eefc; border-radius:12px; overflow:auto;}
+    .muted{opacity:.75}
+    .row{display:flex; gap:12px; flex-wrap:wrap; margin: 10px 0 18px;}
+    .pill{display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background:#f2f4f8;}
+    a{color:#0b61ff;}
+    h1{margin: 0 0 6px;}
+    h2{margin-top:28px;}
+    .warn{background:#fff4e5; padding:10px 12px; border-radius:10px;}
+  </style>
+</head>
+<body>
+  <h1>Alpenlodge — Chat Data Feed</h1>
+  <div class="muted">Maschinenlesbare Verfügbarkeit & Tagespreise (Smoobu Rates) + Wohnungsdetails.</div>
+
+  <div class="row">
+    <div class="pill">Update: <strong>${escapeHtml(updated || '-')}${escapeHtml(stale)}</strong></div>
+    <div class="pill">Zeitzone: <strong>${escapeHtml(tz)}</strong></div>
+    <div class="pill">Zeitraum: <strong>${escapeHtml(start)} → ${escapeHtml(end)}</strong></div>
+    <div class="pill">Tage: <strong>${escapeHtml(days)}</strong></div>
+    <div class="pill"><a href="/api/chat/snapshot">JSON API</a></div>
+  </div>
+
+  <h2>Format / Regeln (wichtig)</h2>
+  <ul>
+    <li><strong>calendar[]</strong> enthält pro <strong>Datum</strong> die Felder: <code>available</code>, <code>price</code>, <code>min_length_of_stay</code>.</li>
+    <li><strong>Preise sind Tagespreise / pro Nacht</strong>. Für einen Zeitraum <code>from → to</code> summierst du die Nächte: <code>from</code> bis <code>to - 1 Tag</code>.</li>
+    <li>Eine Unterkunft ist für einen Zeitraum nur dann buchbar, wenn <strong>alle Nächte</strong> verfügbar sind und die Mindestnächte (<code>min_length_of_stay</code>) passen.</li>
+    <li>Wenn <code>available</code> <code>false</code> oder <code>null</code> ist, ist der Tag nicht sicher verfügbar (blockiert / unbekannt).</li>
+  </ul>
+
+  <div class="warn">${hint}</div>
+
+  <h2>Snapshot (JSON)</h2>
+  <pre>${escapeHtml(snapPretty)}</pre>
+
+  <script id="alpenlodge-snapshot" type="application/json">${snapScript}</script>
+</body>
+</html>`;
+}
+
+// Public Index
+// Aliases:
+// - chat.alpenlodge.info/            -> "/"
+// - test.alpenlodge.info/chat        -> "/chat"
+// This lets you run BOTH hostnames in the same Render service.
+app.get(["/", "/index.html", "/chat", "/chat/", "/chat/index.html"], async (req, res) => {
+  try {
+    const days = req.query?.days;
+    const snap = await getChatSnapshotCached({ days });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).send(buildChatIndexHtml(snap));
+  } catch (e) {
+    res.status(500).send('chat_snapshot_error');
+  }
+});
+
+// Machine-readable snapshot (JSON)
+app.get('/api/chat/snapshot', async (req, res) => {
+  try {
+    const days = req.query?.days;
+    const snap = await getChatSnapshotCached({ days });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(snap);
+  } catch (e) {
+    console.error('❌ /api/chat/snapshot error:', e?.message || e);
+    res.status(500).json({ ok: false, error: 'chat_snapshot_error' });
+  }
+});
+
+// Convenience aliases for the snapshot (same JSON).
+// Useful if you proxy only /chat on another hostname.
+app.get(['/chat/snapshot', '/chat/snapshot.json', '/chat/api'], async (req, res) => {
+  try {
+    const days = req.query?.days;
+    const snap = await getChatSnapshotCached({ days });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(snap);
+  } catch (e) {
+    console.error('❌ /chat/snapshot error:', e?.message || e);
+    res.status(500).json({ ok: false, error: 'chat_snapshot_error' });
+  }
+});
+
+
 // Quick env/status visibility (no secrets). Useful for Render debugging.
 app.get("/api/debug/vars", (req, res) => {
   res.json({
@@ -1712,6 +2233,47 @@ app.get("/api/debug/db", async (req, res) => {
   });
 });
 
+// Chat feed / file generation debug (no secrets).
+app.get("/api/debug/chat", (req, res) => {
+  const cacheAgeSeconds = _chatSnapshotCache.ts ? Math.round((Date.now() - _chatSnapshotCache.ts) / 1000) : null;
+  res.json({
+    ok: true,
+    chat: {
+      build: APP_BUILD,
+      daysDefault: CHAT_SNAPSHOT_DAYS_DEFAULT,
+      refreshMode: CHAT_SNAPSHOT_REFRESH_MODE,
+      refreshHours: CHAT_SNAPSHOT_REFRESH_HOURS,
+      webhook: {
+        tokenProtected: Boolean(SMOOBU_WEBHOOK_TOKEN),
+        last: {
+          ts: _smoobuWebhookState.ts || null,
+          action: _smoobuWebhookState.action || null,
+          user: _smoobuWebhookState.user || null,
+        },
+        debounceMs: CHAT_SNAPSHOT_WEBHOOK_DEBOUNCE_MS,
+        rebuild: {
+          lastTriggerAt: _chatSnapshotRebuild.lastTriggerAt || null,
+          lastReason: _chatSnapshotRebuild.lastReason || null,
+          inFlight: Boolean(_chatSnapshotRebuild.inFlight),
+          scheduled: Boolean(_chatSnapshotRebuild.timer),
+          pending: Boolean(_chatSnapshotRebuild.pending),
+        },
+      },
+      static: {
+        dir: CHAT_STATIC_DIR,
+        serve: CHAT_STATIC_SERVE,
+        write: CHAT_STATIC_WRITE,
+        lastWrite: _chatStaticFiles,
+      },
+      cache: {
+        lastRefreshTs: _chatSnapshotCache.ts || null,
+        cacheAgeSeconds,
+        hasSnapshot: Boolean(_chatSnapshotCache.value),
+      },
+    },
+  });
+});
+
 // Knowledge visibility (no PII). Helps verify that lists are actually loaded on Render.
 app.get("/api/debug/knowledge", (req, res) => {
   const raw = loadKnowledge();
@@ -1732,6 +2294,7 @@ app.get("/api/debug/knowledge", (req, res) => {
 app.get("/api/debug/version", (req, res) => {
   res.json({
     ok: true,
+    build: APP_BUILD,
     ts: new Date().toISOString(),
     node: process.version,
     render: {
@@ -2397,6 +2960,11 @@ async function createSmoobuReservationForPayment({ quote, payment, stripeIntentI
 
   const bookingId = result?.id ?? result?.reservationId ?? null;
 
+  // 🔄 Update chat snapshot after a successful Stripe-paid booking
+  try {
+    if (bookingId) scheduleChatSnapshotRefresh('booking_created:stripe');
+  } catch {}
+
   const extrasApplied = { dogs: 0, nights: 0, dogExtra: 0, addedPriceElements: [], errors: [] };
   extrasApplied.dogs = dogs;
   extrasApplied.nights = nights;
@@ -2802,6 +3370,11 @@ async function smoobuBookHandler(req, res) {
     // Some Smoobu responses return {id:...} others {reservationId:...}
     const bookingId = result?.id ?? result?.reservationId ?? null;
 
+    // 🔄 Update chat snapshot so chat.alpenlodge.info reflects the new reservation quickly
+    try {
+      if (bookingId) scheduleChatSnapshotRefresh('booking_created:concierge_book');
+    } catch {}
+
     // --- Optional extras (best effort) ---
     // Frontend may send extras like dogs; we attach them as price elements to the reservation.
     const extras = (body && typeof body.extras === 'object' && body.extras) ? body.extras : {};
@@ -3176,4 +3749,20 @@ app.post("/api/concierge", conciergeChatHandler);
 // Alias from the API design doc
 app.post("/concierge/chat", conciergeChatHandler);
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🤖 Concierge listening on ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🤖 Concierge listening on ${PORT}`);
+
+  // Warm up chat snapshot (non-blocking) + keep it fresh.
+  // Note: Render instances may sleep; snapshot refresh is also triggered on-demand.
+  refreshChatSnapshot({ days: CHAT_SNAPSHOT_DAYS_DEFAULT }).catch((e) => {
+    console.error('⚠️ chat snapshot warmup failed:', e?.message || e);
+  });
+
+  if (CHAT_SNAPSHOT_REFRESH_MODE === 'interval' || CHAT_SNAPSHOT_REFRESH_MODE === 'hybrid') {
+    setInterval(() => {
+      refreshChatSnapshot({ days: CHAT_SNAPSHOT_DAYS_DEFAULT }).catch((e) => {
+        console.error('⚠️ chat snapshot scheduled refresh failed:', e?.message || e);
+      });
+    }, CHAT_SNAPSHOT_TTL_MS);
+  }
+});
