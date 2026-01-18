@@ -9,3 +9,7 @@ Includes:
 Env (Render):
 DATABASE_URL, SMOOBU_API_KEY, SMOOBU_CUSTOMER_ID, BOOKING_TOKEN_SECRET,
 STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET
+
+
+## v58.1
+Fix: Render crash caused by invalid JS object spread syntax.

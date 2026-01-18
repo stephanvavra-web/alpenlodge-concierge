@@ -1493,7 +1493,7 @@ app.get("/api/payment/stripe/status/:paymentId", async (req, res) => {
     if (!db) return res.status(500).json({ ok:false, error:"db_not_configured" });
     const r = await db.query("SELECT id,status,amount_cents,currency,stripe_payment_intent_id,smoobu_reservation_id,last_error,created_at FROM booking_payments WHERE id=$1", [id]);
     if (!r.rowCount) return res.status(404).json({ ok:false, error:"not_found" });
-    return res.json({ ok:true, **r.rows[0] });
+    return res.json({ ok: true, ...r.rows[0] });
   } catch(e) {
     res.status(500).json({ ok:false, error:"status_error", details: e?.message || String(e) });
   }
