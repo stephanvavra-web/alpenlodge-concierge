@@ -13,3 +13,6 @@ STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET
 
 ## v58.1
 Fix: Render crash caused by invalid JS object spread syntax.
+
+## v58.2
+Fix: remove python leftovers in JS (json.dumps -> JSON.stringify).

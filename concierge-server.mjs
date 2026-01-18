@@ -1475,13 +1475,13 @@ app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
 
     await db.query(
       "INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extras_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, json.dumps({"offer":offer,"offerToken":offerToken}), json.dumps(guest), json.dumps(extras)]
+      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken}), JSON.stringify(guest), JSON.stringify(extras)]
     );
 
     return res.json({ ok:true, paymentId, paymentIntentId:intent.id, clientSecret:intent.client_secret, amountCents, currency:STRIPE_CURRENCY });
   } catch (e) {
     console.error("❌ stripe create-intent error:", e);
-    res.status(500).json({ ok:false, error:"stripe_error", details:{ message: e?.message || str(e)}});
+    res.status(500).json({ ok:false, error:"stripe_error", details:{ message: e?.message || String(e)}});
   }
 });
 
