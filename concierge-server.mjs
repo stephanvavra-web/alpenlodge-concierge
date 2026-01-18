@@ -3,17 +3,10 @@ import cors from "cors";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import os from "os";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
-import pg from "pg";
-import Stripe from "stripe";
 
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
-
-// Helpful human-visible build marker (shows up in /api/debug/version and chat snapshot meta).
-// You can override via Render env var APP_BUILD.
-const APP_BUILD = process.env.APP_BUILD || "v53";
 
 // Resolve paths for local files (ESM-safe)
 const __filename = fileURLToPath(import.meta.url);
@@ -27,388 +20,8 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/ad
 const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
+const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "").toLowerCase() === "true";
 const SMOOBU_BASE = "https://login.smoobu.com";
-
-// Optional: protect your Smoobu webhook endpoint with a shared secret token.
-// Configure your Smoobu webhook URL like: https://.../api/smoobu/webhook?token=YOUR_TOKEN
-const SMOOBU_WEBHOOK_TOKEN = process.env.SMOOBU_WEBHOOK_TOKEN || "";
-
-// ---------------- Chat Snapshot (chat.alpenlodge.info) ----------------
-// Public, machine-readable availability + daily prices for the next N days.
-// Used by voice agents / GPT actions to compute period prices deterministically.
-const CHAT_SNAPSHOT_DAYS_DEFAULT = Number(process.env.CHAT_SNAPSHOT_DAYS || '100');
-const CHAT_SNAPSHOT_REFRESH_MODE = String(process.env.CHAT_SNAPSHOT_REFRESH_MODE || 'webhook').toLowerCase();
-const CHAT_SNAPSHOT_REFRESH_HOURS = Number(
-  process.env.CHAT_SNAPSHOT_REFRESH_HOURS || (CHAT_SNAPSHOT_REFRESH_MODE === 'webhook' ? '24' : '3')
-);
-const CHAT_SNAPSHOT_TTL_MS = Math.max(1, CHAT_SNAPSHOT_REFRESH_HOURS) * 60 * 60 * 1000;
-const CHAT_SNAPSHOT_APT_DETAILS_TTL_HOURS = Number(process.env.CHAT_SNAPSHOT_APT_DETAILS_TTL_HOURS || '24');
-const CHAT_SNAPSHOT_APT_DETAILS_TTL_MS = Math.max(1, CHAT_SNAPSHOT_APT_DETAILS_TTL_HOURS) * 60 * 60 * 1000;
-
-// Where to write the generated /chat/index.html + snapshot.json (default: /tmp).
-// This makes the chat feed usable as a static file too (still served under the URL path /chat/...).
-const CHAT_STATIC_DIR = process.env.CHAT_STATIC_DIR || path.join(os.tmpdir(), 'alpenlodge_chat');
-const CHAT_STATIC_WRITE = String(process.env.CHAT_STATIC_WRITE || 'true').toLowerCase() !== 'false';
-const CHAT_STATIC_SERVE = String(process.env.CHAT_STATIC_SERVE || 'true').toLowerCase() !== 'false';
-let _chatStaticFiles = { ok: false, ts: 0, dir: CHAT_STATIC_DIR, error: null };
-
-// Tracks the last Smoobu webhook we received (no secrets).
-// Useful for debugging and to explain freshness in the chat feed.
-const _smoobuWebhookState = { ts: 0, action: null, user: null };
-
-
-// ---------------- Database (optional) ----------------
-// Used to persist booking/payment state (needed for Stripe flow).
-// If DATABASE_URL is missing or DB init fails, we fall back to in-memory storage (NOT recommended for production).
-const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.PG_URL || "";
-const BOOKING_QUOTE_TTL_MIN = Number(process.env.BOOKING_QUOTE_TTL_MIN || "15");
-const BOOKING_QUOTE_TTL_MS = Math.max(1, BOOKING_QUOTE_TTL_MIN) * 60 * 1000;
-
-// ---------------- Stripe (Payment Element) ----------------
-// IMPORTANT: Use Render Environment Variables. Do NOT hardcode secrets.
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
-const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "";
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
-const STRIPE_CURRENCY_DEFAULT = (process.env.STRIPE_CURRENCY || "eur").toLowerCase();
-
-const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
-
-// Extras / pricing (server-side source of truth)
-const DOG_PRICE_PER_NIGHT = Number(process.env.DOG_PRICE_PER_NIGHT || "10");
-const DOG_PRICE_PER_NIGHT_CENTS = Number.isFinite(DOG_PRICE_PER_NIGHT)
-  ? Math.round(DOG_PRICE_PER_NIGHT * 100)
-  : 0;
-
-const dbState = { kind: DATABASE_URL ? "postgres" : "memory", ready: false, error: null };
-let pgPool = null;
-const memQuotes = new Map(); // quoteId -> record
-const memPayments = new Map(); // paymentId -> record
-const memStripeEvents = new Set(); // stripe event ids we've already processed
-let _dbInitPromise = null;
-
-function pgSslConfigFromUrl(urlStr) {
-  try {
-    const u = new URL(urlStr);
-    const sslmode = String(u.searchParams.get("sslmode") || "").toLowerCase();
-    if (sslmode === "disable") return false;
-    if (sslmode === "require" || sslmode === "verify-ca" || sslmode === "verify-full") return { rejectUnauthorized: false };
-  } catch {}
-  const force = String(process.env.PGSSLMODE || "").toLowerCase();
-  const dbSsl = String(process.env.DB_SSL || "").toLowerCase();
-  if (force === "disable" || dbSsl === "false") return false;
-  if (force === "require" || dbSsl === "true") return { rejectUnauthorized: false };
-  // Heuristic: Render/managed DBs often require SSL
-  if (process.env.RENDER || process.env.RENDER_SERVICE_ID) return { rejectUnauthorized: false };
-  return false;
-}
-
-async function initDb() {
-  if (!DATABASE_URL) {
-    dbState.kind = "memory";
-    dbState.ready = true;
-    return;
-  }
-  try {
-    const { Pool } = pg;
-    const ssl = pgSslConfigFromUrl(DATABASE_URL);
-    pgPool = new Pool({ connectionString: DATABASE_URL, ...(ssl ? { ssl } : {}) });
-    await pgPool.query("SELECT 1");
-    await pgPool.query(`
-      CREATE TABLE IF NOT EXISTS booking_quotes (
-        quote_id TEXT PRIMARY KEY,
-        apartment_id INTEGER NOT NULL,
-        arrival TEXT NOT NULL,
-        departure TEXT NOT NULL,
-        nights INTEGER NOT NULL,
-        guests INTEGER NOT NULL,
-        adults INTEGER,
-        children INTEGER,
-        amount_cents INTEGER NOT NULL,
-        currency TEXT NOT NULL,
-        discount_code TEXT,
-        offer_token TEXT,
-        offer_expires_at TIMESTAMPTZ,
-        status TEXT NOT NULL DEFAULT 'active',
-        created_at TIMESTAMPTZ NOT NULL,
-        expires_at TIMESTAMPTZ NOT NULL,
-        meta JSONB
-      );
-      CREATE INDEX IF NOT EXISTS booking_quotes_expires_idx ON booking_quotes(expires_at);
-      CREATE INDEX IF NOT EXISTS booking_quotes_status_idx ON booking_quotes(status);
-
-      CREATE TABLE IF NOT EXISTS booking_payments (
-        payment_id TEXT PRIMARY KEY,
-        quote_id TEXT NOT NULL,
-        stripe_intent_id TEXT,
-        amount_cents INTEGER NOT NULL,
-        currency TEXT NOT NULL,
-        status TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        guest JSONB,
-        extras JSONB,
-        booking_id TEXT,
-        booking_json JSONB,
-        last_error TEXT
-      );
-      CREATE INDEX IF NOT EXISTS booking_payments_quote_idx ON booking_payments(quote_id);
-      CREATE INDEX IF NOT EXISTS booking_payments_intent_idx ON booking_payments(stripe_intent_id);
-      CREATE INDEX IF NOT EXISTS booking_payments_status_idx ON booking_payments(status);
-
-      CREATE TABLE IF NOT EXISTS stripe_events (
-        event_id TEXT PRIMARY KEY,
-        created_at TIMESTAMPTZ NOT NULL,
-        type TEXT NOT NULL,
-        payment_id TEXT,
-        stripe_intent_id TEXT
-      );
-    `);
-    dbState.kind = "postgres";
-    dbState.ready = true;
-  } catch (e) {
-    console.error("⚠️ DB init failed, falling back to in-memory storage:", e?.message || e);
-    dbState.kind = "memory";
-    dbState.ready = true;
-    dbState.error = String(e?.message || e);
-    pgPool = null;
-  }
-}
-
-function ensureDb() {
-  if (!_dbInitPromise) _dbInitPromise = initDb();
-  return _dbInitPromise;
-}
-
-async function dbCreateQuote(rec) {
-  await ensureDb();
-  if (pgPool) {
-    const meta = rec.meta ? JSON.stringify(rec.meta) : null;
-    await pgPool.query(
-      `INSERT INTO booking_quotes
-        (quote_id, apartment_id, arrival, departure, nights, guests, adults, children, amount_cents, currency, discount_code, offer_token, offer_expires_at, status, created_at, expires_at, meta)
-       VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)`,
-      [
-        rec.quoteId,
-        rec.apartmentId,
-        rec.arrival,
-        rec.departure,
-        rec.nights,
-        rec.guests,
-        rec.adults ?? null,
-        rec.children ?? null,
-        rec.amountCents,
-        rec.currency,
-        rec.discountCode ?? null,
-        rec.offerToken ?? null,
-        rec.offerExpiresAt ? new Date(rec.offerExpiresAt) : null,
-        rec.status || 'active',
-        new Date(rec.createdAt),
-        new Date(rec.expiresAt),
-        meta,
-      ]
-    );
-    return;
-  }
-  memQuotes.set(rec.quoteId, rec);
-}
-
-async function dbGetQuote(quoteId) {
-  await ensureDb();
-  if (pgPool) {
-    const r = await pgPool.query(
-      `SELECT quote_id, apartment_id, arrival, departure, nights, guests, adults, children, amount_cents, currency, discount_code, offer_token, offer_expires_at, status, created_at, expires_at, meta
-         FROM booking_quotes
-        WHERE quote_id = $1
-        LIMIT 1`,
-      [quoteId]
-    );
-    if (!r.rowCount) return null;
-    const row = r.rows[0];
-    const expiresAt = row.expires_at ? new Date(row.expires_at).toISOString() : null;
-    if (expiresAt && new Date(expiresAt).getTime() < Date.now()) return null;
-    return {
-      quoteId: row.quote_id,
-      apartmentId: row.apartment_id,
-      arrival: row.arrival,
-      departure: row.departure,
-      nights: row.nights,
-      guests: row.guests,
-      adults: row.adults,
-      children: row.children,
-      amountCents: row.amount_cents,
-      currency: row.currency,
-      discountCode: row.discount_code,
-      offerToken: row.offer_token,
-      offerExpiresAt: row.offer_expires_at ? new Date(row.offer_expires_at).toISOString() : null,
-      status: row.status,
-      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
-      expiresAt,
-      meta: row.meta || null,
-    };
-  }
-  const rec = memQuotes.get(quoteId) || null;
-  if (!rec) return null;
-  if (rec.expiresAt && new Date(rec.expiresAt).getTime() < Date.now()) {
-    memQuotes.delete(quoteId);
-    return null;
-  }
-  return rec;
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-async function dbCreatePayment(rec) {
-  await ensureDb();
-  if (pgPool) {
-    const guest = rec.guest ? JSON.stringify(rec.guest) : null;
-    const extras = rec.extras ? JSON.stringify(rec.extras) : null;
-    const bookingJson = rec.bookingJson ? JSON.stringify(rec.bookingJson) : null;
-    await pgPool.query(
-      `INSERT INTO booking_payments
-        (payment_id, quote_id, stripe_intent_id, amount_cents, currency, status, created_at, updated_at, guest, extras, booking_id, booking_json, last_error)
-       VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12::jsonb,$13)`,
-      [
-        rec.paymentId,
-        rec.quoteId,
-        rec.stripeIntentId ?? null,
-        rec.amountCents,
-        rec.currency,
-        rec.status,
-        new Date(rec.createdAt),
-        new Date(rec.updatedAt),
-        guest,
-        extras,
-        rec.bookingId ?? null,
-        bookingJson,
-        rec.lastError ?? null,
-      ]
-    );
-    return;
-  }
-  memPayments.set(rec.paymentId, rec);
-}
-
-async function dbUpdatePayment(paymentId, patch) {
-  await ensureDb();
-  const updatedAt = patch.updatedAt ? new Date(patch.updatedAt) : new Date();
-  if (pgPool) {
-    const fields = [];
-    const values = [];
-    let i = 1;
-    const set = (col, val, castJson = false) => {
-      fields.push(`${col} = $${i}${castJson ? '::jsonb' : ''}`);
-      values.push(castJson ? JSON.stringify(val) : val);
-      i++;
-    };
-
-    if (patch.quoteId !== undefined) set('quote_id', patch.quoteId);
-    if (patch.stripeIntentId !== undefined) set('stripe_intent_id', patch.stripeIntentId);
-    if (patch.amountCents !== undefined) set('amount_cents', patch.amountCents);
-    if (patch.currency !== undefined) set('currency', patch.currency);
-    if (patch.status !== undefined) set('status', patch.status);
-    if (patch.guest !== undefined) set('guest', patch.guest, true);
-    if (patch.extras !== undefined) set('extras', patch.extras, true);
-    if (patch.bookingId !== undefined) set('booking_id', patch.bookingId);
-    if (patch.bookingJson !== undefined) set('booking_json', patch.bookingJson, true);
-    if (patch.lastError !== undefined) set('last_error', patch.lastError);
-    set('updated_at', updatedAt);
-
-    if (!fields.length) return;
-    values.push(paymentId);
-    await pgPool.query(`UPDATE booking_payments SET ${fields.join(', ')} WHERE payment_id = $${i}`, values);
-    return;
-  }
-
-  const rec = memPayments.get(paymentId);
-  if (!rec) return;
-  const merged = { ...rec, ...patch, updatedAt: updatedAt.toISOString() };
-  memPayments.set(paymentId, merged);
-}
-
-async function dbGetPayment(paymentId) {
-  await ensureDb();
-  if (pgPool) {
-    const r = await pgPool.query(
-      `SELECT payment_id, quote_id, stripe_intent_id, amount_cents, currency, status, created_at, updated_at, guest, extras, booking_id, booking_json, last_error
-         FROM booking_payments
-        WHERE payment_id = $1
-        LIMIT 1`,
-      [paymentId]
-    );
-    if (!r.rowCount) return null;
-    const row = r.rows[0];
-    return {
-      paymentId: row.payment_id,
-      quoteId: row.quote_id,
-      stripeIntentId: row.stripe_intent_id,
-      amountCents: row.amount_cents,
-      currency: row.currency,
-      status: row.status,
-      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
-      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
-      guest: row.guest || null,
-      extras: row.extras || null,
-      bookingId: row.booking_id || null,
-      bookingJson: row.booking_json || null,
-      lastError: row.last_error || null,
-    };
-  }
-  return memPayments.get(paymentId) || null;
-}
-
-async function dbGetPaymentByIntent(stripeIntentId) {
-  await ensureDb();
-  if (pgPool) {
-    const r = await pgPool.query(
-      `SELECT payment_id, quote_id, stripe_intent_id, amount_cents, currency, status, created_at, updated_at, guest, extras, booking_id, booking_json, last_error
-         FROM booking_payments
-        WHERE stripe_intent_id = $1
-        LIMIT 1`,
-      [stripeIntentId]
-    );
-    if (!r.rowCount) return null;
-    const row = r.rows[0];
-    return {
-      paymentId: row.payment_id,
-      quoteId: row.quote_id,
-      stripeIntentId: row.stripe_intent_id,
-      amountCents: row.amount_cents,
-      currency: row.currency,
-      status: row.status,
-      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
-      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
-      guest: row.guest || null,
-      extras: row.extras || null,
-      bookingId: row.booking_id || null,
-      bookingJson: row.booking_json || null,
-      lastError: row.last_error || null,
-    };
-  }
-  for (const rec of memPayments.values()) {
-    if (rec?.stripeIntentId === stripeIntentId) return rec;
-  }
-  return null;
-}
-
-async function dbMarkStripeEventProcessed(eventId, { type, paymentId = null, stripeIntentId = null } = {}) {
-  await ensureDb();
-  if (pgPool) {
-    const r = await pgPool.query(
-      `INSERT INTO stripe_events (event_id, created_at, type, payment_id, stripe_intent_id)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (event_id) DO NOTHING`,
-      [eventId, new Date(), type || 'unknown', paymentId, stripeIntentId]
-    );
-    return r.rowCount > 0;
-  }
-  if (memStripeEvents.has(eventId)) return false;
-  memStripeEvents.add(eventId);
-  return true;
-}
 
 // Mini-Cache (damit wir Smoobu nicht spammen)
 const cache = {
@@ -590,303 +203,6 @@ function detectUnitCategoryFilter(userText) {
   if (t.includes("apartment") || t.includes("apartments")) return "Apartment";
   return null;
 }
-
-// ---------------- Chat Snapshot Builder ----------------
-// Generates a public snapshot with: unit descriptions + per-day availability + per-day prices.
-// Refresh strategy:
-// - cache in-memory for CHAT_SNAPSHOT_TTL_MS (default: 3h)
-// - if stale and we still have a previous snapshot, we serve stale immediately and refresh in background
-
-const _chatSnapshotCache = { ts: 0, ttlMs: CHAT_SNAPSHOT_TTL_MS, value: null, inFlight: null };
-const _aptDetailsCache = new Map(); // apartmentId -> {ts, ttlMs, value}
-
-function clampInt(v, min, max, fallback) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  const i = Math.trunc(n);
-  if (i < min) return min;
-  if (i > max) return max;
-  return i;
-}
-
-function isoToday(tz = 'Europe/Vienna') {
-  const ymd = ymdInTimeZone(new Date(), tz);
-  if (!ymd) return null;
-  return `${ymd.y}-${String(ymd.m).padStart(2, '0')}-${String(ymd.d).padStart(2, '0')}`;
-}
-
-function listIsoDays(startIso, days) {
-  const out = [];
-  for (let i = 0; i < days; i += 1) out.push(addDaysISO(startIso, i));
-  return out;
-}
-
-async function getSmoobuApartmentsListCached() {
-  const cached = cacheGet(cache.apartments);
-  if (cached) return cached;
-  const data = await smoobuFetch('/api/apartments', { method: 'GET', timeoutMs: 15000 });
-  cache.apartments.ts = now();
-  cache.apartments.value = data;
-  return data;
-}
-
-async function getSmoobuApartmentDetailsCached(apartmentId) {
-  const id = Number(apartmentId);
-  if (!Number.isFinite(id)) return null;
-  const now = Date.now();
-  const hit = _aptDetailsCache.get(id);
-  if (hit && now - hit.ts < hit.ttlMs) return hit.value;
-  const data = await smoobuFetch(`/api/apartments/${id}`, { method: 'GET', timeoutMs: 15000 });
-  _aptDetailsCache.set(id, { ts: now, ttlMs: CHAT_SNAPSHOT_APT_DETAILS_TTL_MS, value: data });
-  return data;
-}
-
-function extractAmenityNames(details) {
-  const out = [];
-  const add = (x) => {
-    const s = String(x || '').trim();
-    if (!s) return;
-    if (!out.includes(s)) out.push(s);
-  };
-
-  const lists = [details?.amenities, details?.equipments, details?.equipment, details?.amenity];
-  for (const l of lists) {
-    if (!Array.isArray(l)) continue;
-    for (const it of l) {
-      if (!it) continue;
-      if (typeof it === 'string') add(it);
-      else add(it.name || it.title || it.label);
-    }
-  }
-
-  return out;
-}
-
-function buildApartmentDescription(details) {
-  if (!details || typeof details !== 'object') return { text: '', fields: {} };
-
-  const rooms = details.rooms && typeof details.rooms === 'object' ? details.rooms : {};
-  const typeName = details?.type?.name || details?.type || '';
-
-  const maxOcc = rooms.maxOccupancy ?? rooms.max_occupancy ?? rooms.max_occupancy_persons ?? null;
-  const bedrooms = rooms.bedrooms ?? rooms.bedroom ?? null;
-  const bathrooms = rooms.bathrooms ?? rooms.bathroom ?? null;
-
-  const currency = details.currency || details?.price?.currency || null;
-  const priceMin = details?.price?.minimal ?? details?.price?.min ?? null;
-  const priceMax = details?.price?.maximal ?? details?.price?.max ?? null;
-
-  const amenities = extractAmenityNames(details);
-
-  const fields = {
-    type: typeName || null,
-    maxOccupancy: Number.isFinite(Number(maxOcc)) ? Number(maxOcc) : null,
-    bedrooms: Number.isFinite(Number(bedrooms)) ? Number(bedrooms) : null,
-    bathrooms: Number.isFinite(Number(bathrooms)) ? Number(bathrooms) : null,
-    currency,
-    priceMin,
-    priceMax,
-    amenities,
-  };
-
-  const parts = [];
-  if (fields.type) parts.push(`Typ: ${fields.type}`);
-  if (fields.maxOccupancy) parts.push(`Max. Personen: ${fields.maxOccupancy}`);
-  if (fields.bedrooms) parts.push(`Schlafzimmer: ${fields.bedrooms}`);
-  if (fields.bathrooms) parts.push(`Bäder: ${fields.bathrooms}`);
-  if (fields.priceMin || fields.priceMax) parts.push(`Preisrahmen (Smoobu): ${fields.priceMin ?? '?'}–${fields.priceMax ?? '?'} ${fields.currency ?? ''}`.trim());
-  if (amenities.length) parts.push(`Ausstattung (Auszug): ${amenities.slice(0, 20).join(', ')}${amenities.length > 20 ? ' …' : ''}`);
-
-  return { text: parts.join(' | '), fields };
-}
-
-async function buildChatSnapshot({ days } = {}) {
-  const d = clampInt(days ?? CHAT_SNAPSHOT_DAYS_DEFAULT, 1, 365, CHAT_SNAPSHOT_DAYS_DEFAULT);
-  const start = isoToday('Europe/Vienna');
-  if (!start) throw new Error('date_error');
-  const end = addDaysISO(start, d - 1);
-
-  const list = await getSmoobuApartmentsListCached();
-  const apartments = Array.isArray(list?.apartments) ? list.apartments : [];
-  const apartmentIds = apartments.map((a) => Number(a?.id)).filter((x) => Number.isFinite(x));
-
-  // Load daily rates (price + availability) for the whole range and all apartments.
-  const rates = await smoobuFetch('/api/rates', {
-    method: 'GET',
-    timeoutMs: 25000,
-    query: { start_date: start, end_date: end, apartments: apartmentIds },
-  });
-
-  const daysList = listIsoDays(start, d);
-  const ratesData = rates?.data && typeof rates.data === 'object' ? rates.data : rates;
-
-  // Load apartment details (for descriptions) with a small concurrency limit.
-  const detailsById = new Map();
-  const concurrency = 4;
-  let i = 0;
-  const worker = async () => {
-    while (i < apartmentIds.length) {
-      const id = apartmentIds[i];
-      i += 1;
-      try {
-        const det = await getSmoobuApartmentDetailsCached(id);
-        if (det) detailsById.set(id, det);
-      } catch (e) {
-        // keep going – description is best-effort
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, apartmentIds.length) }, worker));
-
-  const units = apartmentIds.map((id) => {
-    const apt = apartments.find((a) => Number(a?.id) === id) || {};
-    const unitFromMap = findUnitByApartmentId(id);
-    const det = detailsById.get(id) || null;
-    const desc = buildApartmentDescription(det);
-
-    const ratesForId = (ratesData?.[id] || ratesData?.[String(id)] || null) ?? {};
-    const calendar = daysList.map((date) => {
-      const r = ratesForId?.[date] || null;
-      const available = typeof r?.available === 'boolean' ? r.available : null;
-      const price = r?.price ?? null;
-      const minStay = r?.min_length_of_stay ?? r?.minLengthOfStay ?? null;
-      return { date, available, price, min_length_of_stay: minStay };
-    });
-
-    return {
-      apartment_id: id,
-      name: apt?.name || unitFromMap?.name || `Apartment ${id}`,
-      unit_id: unitFromMap?.unit_id || unitFromMap?.slug || null,
-      category: unitFromMap?.category || null,
-      details_url: unitFromMap?.details_url || unitFromMap?.url || null,
-      description: desc.text,
-      description_fields: desc.fields,
-      calendar,
-    };
-  });
-
-  return {
-    ok: true,
-    meta: {
-      build: APP_BUILD,
-      generatedAt: new Date().toISOString(),
-      refreshMode: CHAT_SNAPSHOT_REFRESH_MODE,
-      refreshHours: CHAT_SNAPSHOT_REFRESH_HOURS,
-      lastWebhook: _smoobuWebhookState.action
-        ? { action: _smoobuWebhookState.action, ts: new Date(_smoobuWebhookState.ts).toISOString() }
-        : null,
-      timezone: 'Europe/Vienna',
-      start_date: start,
-      end_date: end,
-      days: d,
-      source: 'smoobu:/api/rates',
-    },
-    units,
-  };
-}
-
-async function writeChatStaticFiles(snapshot) {
-  if (!CHAT_STATIC_WRITE) return;
-  try {
-    fs.mkdirSync(CHAT_STATIC_DIR, { recursive: true });
-  } catch {}
-  try {
-    const html = buildChatIndexHtml(snapshot);
-    const jsonPretty = JSON.stringify(snapshot, null, 2);
-    const jsonMin = JSON.stringify(snapshot);
-    fs.writeFileSync(path.join(CHAT_STATIC_DIR, 'index.html'), html, 'utf8');
-    fs.writeFileSync(path.join(CHAT_STATIC_DIR, 'snapshot.json'), jsonPretty, 'utf8');
-    fs.writeFileSync(path.join(CHAT_STATIC_DIR, 'snapshot.min.json'), jsonMin, 'utf8');
-    _chatStaticFiles = { ok: true, ts: Date.now(), dir: CHAT_STATIC_DIR, error: null };
-  } catch (e) {
-    _chatStaticFiles = { ok: false, ts: Date.now(), dir: CHAT_STATIC_DIR, error: String(e?.message || e) };
-    console.error('⚠️ chat static write failed:', _chatStaticFiles.error);
-  }
-}
-
-
-async function refreshChatSnapshot({ days } = {}) {
-  const snap = await buildChatSnapshot({ days });
-  _chatSnapshotCache.ts = Date.now();
-  _chatSnapshotCache.value = snap;
-  // Also persist as static files (index.html + snapshot.json) for /chat/
-  try {
-    await writeChatStaticFiles(snap);
-  } catch {}
-  return snap;
-}
-
-async function getChatSnapshotCached({ days } = {}) {
-  const d = clampInt(days ?? CHAT_SNAPSHOT_DAYS_DEFAULT, 1, 365, CHAT_SNAPSHOT_DAYS_DEFAULT);
-  const now = Date.now();
-  const age = now - _chatSnapshotCache.ts;
-
-  // Fresh enough
-  if (_chatSnapshotCache.value && age < _chatSnapshotCache.ttlMs) return _chatSnapshotCache.value;
-
-  // If we have stale data, serve it immediately but refresh in background.
-  if (_chatSnapshotCache.value) {
-    if (!_chatSnapshotCache.inFlight) {
-      _chatSnapshotCache.inFlight = refreshChatSnapshot({ days: d })
-        .catch((e) => {
-          console.error('⚠️ chat snapshot refresh failed:', e?.message || e);
-          return null;
-        })
-        .finally(() => {
-          _chatSnapshotCache.inFlight = null;
-        });
-    }
-    return { ..._chatSnapshotCache.value, meta: { ..._chatSnapshotCache.value.meta, stale: true } };
-  }
-
-  // Cold start: block until we have data
-  if (!_chatSnapshotCache.inFlight) {
-    _chatSnapshotCache.inFlight = refreshChatSnapshot({ days: d }).finally(() => {
-      _chatSnapshotCache.inFlight = null;
-    });
-  }
-  return await _chatSnapshotCache.inFlight;
-}
-
-// --- Event-driven refresh helpers (Smoobu Webhooks) ---
-// We debounce rebuilds to avoid hammering Smoobu when many events come in.
-const CHAT_SNAPSHOT_WEBHOOK_DEBOUNCE_MS = Number(process.env.CHAT_SNAPSHOT_WEBHOOK_DEBOUNCE_MS || '4000');
-const _chatSnapshotRebuild = {
-  timer: null,
-  inFlight: false,
-  pending: false,
-  lastReason: null,
-  lastTriggerAt: 0,
-};
-
-function scheduleChatSnapshotRefresh(reason = 'event') {
-  _chatSnapshotRebuild.lastReason = String(reason || 'event');
-  _chatSnapshotRebuild.lastTriggerAt = Date.now();
-  if (_chatSnapshotRebuild.timer) return; // already scheduled
-
-  _chatSnapshotRebuild.timer = setTimeout(async () => {
-    _chatSnapshotRebuild.timer = null;
-
-    if (_chatSnapshotRebuild.inFlight) {
-      _chatSnapshotRebuild.pending = true;
-      return;
-    }
-
-    _chatSnapshotRebuild.inFlight = true;
-    try {
-      await refreshChatSnapshot({ days: CHAT_SNAPSHOT_DAYS_DEFAULT });
-    } catch (e) {
-      console.error('⚠️ chat snapshot webhook refresh failed:', e?.message || e);
-    } finally {
-      _chatSnapshotRebuild.inFlight = false;
-      if (_chatSnapshotRebuild.pending) {
-        _chatSnapshotRebuild.pending = false;
-        scheduleChatSnapshotRefresh('pending');
-      }
-    }
-  }, Math.max(0, CHAT_SNAPSHOT_WEBHOOK_DEBOUNCE_MS));
-}
-
 
 
 
@@ -1302,23 +618,6 @@ function formatMoney(amount, currency) {
   } catch {
     return `${n.toFixed(2)} ${cur}`;
   }
-}
-
-function normalizeCurrencyCode(cur) {
-  const raw = String(cur || "").trim();
-  if (!raw) return "EUR";
-  const up = raw.toUpperCase();
-  if (up in {"EUR":1,"EURO":1,"€":1}) return "EUR";
-  const letters = up.replace(/[^A-Z]/g, "");
-  if (letters.length === 3) return letters;
-  return "EUR";
-}
-
-function amountToCents(amount) {
-  const n = Number(amount);
-  if (!Number.isFinite(n)) return null;
-  // Smoobu prices are in major units (EUR). Stripe wants cents.
-  return Math.round(n * 100);
 }
 
 async function fetchStayOptions({ arrival, departure, guests }) {
@@ -1878,22 +1177,14 @@ function availabilityCacheSet(key, value, ttlMs = 30 * 1000) {
   cache.availability.set(key, { ts: now(), ttlMs, value });
 }
 
-function getSmoobuTimeoutMs(defaultMs = 25000) {
-  const raw = Number(process.env.SMOOBU_TIMEOUT_MS || defaultMs);
-  if (!Number.isFinite(raw)) return defaultMs;
-  // Safety clamp (Render + Smoobu should not hang forever)
-  return Math.max(5000, Math.min(raw, 60000));
-}
-
-async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs } = {}) {
+async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 15000 } = {}) {
   if (!SMOOBU_API_KEY) {
     const e = new Error("SMOOBU_API_KEY missing");
     e.status = 500;
     throw e;
   }
   const controller = new AbortController();
-  const effectiveTimeoutMs = Number.isFinite(timeoutMs) ? timeoutMs : getSmoobuTimeoutMs();
-  const t = setTimeout(() => controller.abort(), effectiveTimeoutMs);
+  const t = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const headers = { "Api-Key": SMOOBU_API_KEY };
@@ -1980,15 +1271,7 @@ function isWeatherQuestion(text = "") {
 }
 const app = express();
 app.use(cors());
-// Keep raw request body for Stripe webhook signature verification.
-// (Stripe requires the exact raw payload to validate the event signature.)
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  })
-);
+app.use(express.json());
 
 // ✅ Only ENV key (Render → Environment Variables)
 const apiKey = process.env.OPENAI_API_KEY;
@@ -2001,197 +1284,6 @@ const openai = new OpenAI({ apiKey });
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
-
-// ---------------- Smoobu Webhook (event driven) ----------------
-// Configure in Smoobu API settings: https://.../api/smoobu/webhook?token=YOUR_TOKEN
-// Smoobu sends actions like: updateRates, newReservation, updateReservation, cancelReservation, deleteReservation.
-// We use this to refresh the /chat snapshot immediately after calendar/price changes.
-app.post('/api/smoobu/webhook', (req, res) => {
-  try {
-    const token = String(req.query?.token || '').trim();
-    if (SMOOBU_WEBHOOK_TOKEN && token !== SMOOBU_WEBHOOK_TOKEN) {
-      return res.status(403).json({ ok: false, error: 'forbidden' });
-    }
-
-    const body = req.body || {};
-    const action = String(body.action || '').trim();
-    const user = body.user ?? null;
-
-    _smoobuWebhookState.ts = Date.now();
-    _smoobuWebhookState.action = action || null;
-    _smoobuWebhookState.user = user;
-
-    const triggers = new Set([
-      'updateRates',
-      'newReservation',
-      'updateReservation',
-      'cancelReservation',
-      'deleteReservation',
-      'priceElementCreated',
-      'priceElementUpdated',
-      'priceElementDeleted',
-      'onlineCheckInUpdate',
-      'newMessage',
-    ]);
-
-    if (triggers.has(action)) {
-      scheduleChatSnapshotRefresh(`smoobu_webhook:${action}`);
-    }
-
-    // Respond quickly: the heavy work happens async.
-    return res.json({ ok: true });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: 'webhook_error' });
-  }
-});
-
-// Serve pre-generated chat files (index.html + snapshot.json) under /chat/...
-// Files are written whenever the chat snapshot is refreshed (webhook / on-demand / interval).
-if (CHAT_STATIC_SERVE) {
-  try {
-    fs.mkdirSync(CHAT_STATIC_DIR, { recursive: true });
-  } catch {}
-  app.use('/chat', express.static(CHAT_STATIC_DIR, {
-    index: 'index.html',
-    etag: false,
-    fallthrough: true,
-    setHeaders: (res) => {
-      res.setHeader('Cache-Control', 'no-store');
-    },
-  }));
-}
-
-// ---------------- chat.alpenlodge.info ----------------
-// Public index + machine-readable snapshot for the next 100 days (default).
-// This is intended for GPT / voice agents to read current prices & availability deterministically.
-
-function escapeHtml(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function buildChatIndexHtml(snapshot) {
-  const snapPretty = JSON.stringify(snapshot, null, 2);
-  // For the JSON-in-script-tag we replace '<' to prevent accidental </script> breaks.
-  const snapScript = snapPretty.replace(/</g, '\u003c');
-
-  const meta = snapshot?.meta || {};
-  const title = 'Alpenlodge — Chat Data Feed';
-  const updated = meta.generatedAt || '';
-  const tz = meta.timezone || 'Europe/Vienna';
-  const days = meta.days || CHAT_SNAPSHOT_DAYS_DEFAULT;
-  const start = meta.start_date || '';
-  const end = meta.end_date || '';
-  const stale = meta.stale ? ' (stale – refresh in progress)' : '';
-
-  const hint = (() => {
-    if (CHAT_SNAPSHOT_REFRESH_MODE === 'interval') {
-      return `Hinweis: Dieser Snapshot wird serverseitig gecached und ca. alle <strong>${escapeHtml(CHAT_SNAPSHOT_REFRESH_HOURS)}</strong> Stunden aktualisiert.`;
-    }
-    if (CHAT_SNAPSHOT_REFRESH_MODE === 'hybrid') {
-      return `Hinweis: Dieser Snapshot wird per <strong>Smoobu Webhooks</strong> aktualisiert und zusätzlich ca. alle <strong>${escapeHtml(CHAT_SNAPSHOT_REFRESH_HOURS)}</strong> Stunden refreshed (Fallback).`;
-    }
-    // webhook (default)
-    return `Hinweis: Dieser Snapshot wird primär per <strong>Smoobu Webhooks</strong> aktualisiert. Fallback: On-Demand Refresh, wenn die Daten älter als <strong>${escapeHtml(CHAT_SNAPSHOT_REFRESH_HOURS)}</strong> Stunden sind.`;
-  })();
-
-  return `<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title}</title>
-  <style>
-    body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin:24px; line-height:1.5; max-width: 1100px;}
-    code,pre{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-    pre{padding:14px; background:#0b0f1a; color:#e8eefc; border-radius:12px; overflow:auto;}
-    .muted{opacity:.75}
-    .row{display:flex; gap:12px; flex-wrap:wrap; margin: 10px 0 18px;}
-    .pill{display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background:#f2f4f8;}
-    a{color:#0b61ff;}
-    h1{margin: 0 0 6px;}
-    h2{margin-top:28px;}
-    .warn{background:#fff4e5; padding:10px 12px; border-radius:10px;}
-  </style>
-</head>
-<body>
-  <h1>Alpenlodge — Chat Data Feed</h1>
-  <div class="muted">Maschinenlesbare Verfügbarkeit & Tagespreise (Smoobu Rates) + Wohnungsdetails.</div>
-
-  <div class="row">
-    <div class="pill">Update: <strong>${escapeHtml(updated || '-')}${escapeHtml(stale)}</strong></div>
-    <div class="pill">Zeitzone: <strong>${escapeHtml(tz)}</strong></div>
-    <div class="pill">Zeitraum: <strong>${escapeHtml(start)} → ${escapeHtml(end)}</strong></div>
-    <div class="pill">Tage: <strong>${escapeHtml(days)}</strong></div>
-    <div class="pill"><a href="/api/chat/snapshot">JSON API</a></div>
-  </div>
-
-  <h2>Format / Regeln (wichtig)</h2>
-  <ul>
-    <li><strong>calendar[]</strong> enthält pro <strong>Datum</strong> die Felder: <code>available</code>, <code>price</code>, <code>min_length_of_stay</code>.</li>
-    <li><strong>Preise sind Tagespreise / pro Nacht</strong>. Für einen Zeitraum <code>from → to</code> summierst du die Nächte: <code>from</code> bis <code>to - 1 Tag</code>.</li>
-    <li>Eine Unterkunft ist für einen Zeitraum nur dann buchbar, wenn <strong>alle Nächte</strong> verfügbar sind und die Mindestnächte (<code>min_length_of_stay</code>) passen.</li>
-    <li>Wenn <code>available</code> <code>false</code> oder <code>null</code> ist, ist der Tag nicht sicher verfügbar (blockiert / unbekannt).</li>
-  </ul>
-
-  <div class="warn">${hint}</div>
-
-  <h2>Snapshot (JSON)</h2>
-  <pre>${escapeHtml(snapPretty)}</pre>
-
-  <script id="alpenlodge-snapshot" type="application/json">${snapScript}</script>
-</body>
-</html>`;
-}
-
-// Public Index
-// Aliases:
-// - chat.alpenlodge.info/            -> "/"
-// - test.alpenlodge.info/chat        -> "/chat"
-// This lets you run BOTH hostnames in the same Render service.
-app.get(["/", "/index.html", "/chat", "/chat/", "/chat/index.html"], async (req, res) => {
-  try {
-    const days = req.query?.days;
-    const snap = await getChatSnapshotCached({ days });
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
-    res.status(200).send(buildChatIndexHtml(snap));
-  } catch (e) {
-    res.status(500).send('chat_snapshot_error');
-  }
-});
-
-// Machine-readable snapshot (JSON)
-app.get('/api/chat/snapshot', async (req, res) => {
-  try {
-    const days = req.query?.days;
-    const snap = await getChatSnapshotCached({ days });
-    res.setHeader('Cache-Control', 'no-store');
-    res.json(snap);
-  } catch (e) {
-    console.error('❌ /api/chat/snapshot error:', e?.message || e);
-    res.status(500).json({ ok: false, error: 'chat_snapshot_error' });
-  }
-});
-
-// Convenience aliases for the snapshot (same JSON).
-// Useful if you proxy only /chat on another hostname.
-app.get(['/chat/snapshot', '/chat/snapshot.json', '/chat/api'], async (req, res) => {
-  try {
-    const days = req.query?.days;
-    const snap = await getChatSnapshotCached({ days });
-    res.setHeader('Cache-Control', 'no-store');
-    res.json(snap);
-  } catch (e) {
-    console.error('❌ /chat/snapshot error:', e?.message || e);
-    res.status(500).json({ ok: false, error: 'chat_snapshot_error' });
-  }
-});
-
 
 // Quick env/status visibility (no secrets). Useful for Render debugging.
 app.get("/api/debug/vars", (req, res) => {
@@ -2216,64 +1308,6 @@ app.get("/api/debug/vars", (req, res) => {
   });
 });
 
-// DB visibility (no secrets). Used to verify DATABASE_URL / connection on Render.
-app.get("/api/debug/db", async (req, res) => {
-  await ensureDb();
-  res.json({
-    ok: true,
-    db: {
-      kind: dbState.kind,
-      ready: dbState.ready,
-      databaseUrlSet: Boolean(DATABASE_URL),
-      error: dbState.error || null,
-    },
-    quote: {
-      ttlMinutes: BOOKING_QUOTE_TTL_MIN,
-    },
-  });
-});
-
-// Chat feed / file generation debug (no secrets).
-app.get("/api/debug/chat", (req, res) => {
-  const cacheAgeSeconds = _chatSnapshotCache.ts ? Math.round((Date.now() - _chatSnapshotCache.ts) / 1000) : null;
-  res.json({
-    ok: true,
-    chat: {
-      build: APP_BUILD,
-      daysDefault: CHAT_SNAPSHOT_DAYS_DEFAULT,
-      refreshMode: CHAT_SNAPSHOT_REFRESH_MODE,
-      refreshHours: CHAT_SNAPSHOT_REFRESH_HOURS,
-      webhook: {
-        tokenProtected: Boolean(SMOOBU_WEBHOOK_TOKEN),
-        last: {
-          ts: _smoobuWebhookState.ts || null,
-          action: _smoobuWebhookState.action || null,
-          user: _smoobuWebhookState.user || null,
-        },
-        debounceMs: CHAT_SNAPSHOT_WEBHOOK_DEBOUNCE_MS,
-        rebuild: {
-          lastTriggerAt: _chatSnapshotRebuild.lastTriggerAt || null,
-          lastReason: _chatSnapshotRebuild.lastReason || null,
-          inFlight: Boolean(_chatSnapshotRebuild.inFlight),
-          scheduled: Boolean(_chatSnapshotRebuild.timer),
-          pending: Boolean(_chatSnapshotRebuild.pending),
-        },
-      },
-      static: {
-        dir: CHAT_STATIC_DIR,
-        serve: CHAT_STATIC_SERVE,
-        write: CHAT_STATIC_WRITE,
-        lastWrite: _chatStaticFiles,
-      },
-      cache: {
-        lastRefreshTs: _chatSnapshotCache.ts || null,
-        cacheAgeSeconds,
-        hasSnapshot: Boolean(_chatSnapshotCache.value),
-      },
-    },
-  });
-});
-
 // Knowledge visibility (no PII). Helps verify that lists are actually loaded on Render.
 app.get("/api/debug/knowledge", (req, res) => {
   const raw = loadKnowledge();
@@ -2294,7 +1328,6 @@ app.get("/api/debug/knowledge", (req, res) => {
 app.get("/api/debug/version", (req, res) => {
   res.json({
     ok: true,
-    build: APP_BUILD,
     ts: new Date().toISOString(),
     node: process.version,
     render: {
@@ -2335,12 +1368,25 @@ async function smoobuAvailabilityHandler(req, res) {
     }
 
     const { arrivalDate, departureDate, apartments, guests, discountCode } = req.body || {};
-    const aIso = toISODate(arrivalDate);
-    const dIso = toISODate(departureDate);
+    let aIso = toISODate(arrivalDate);
+    let dIso = toISODate(departureDate);
     if (!aIso || !dIso) {
       return res.status(400).json({
         error: "arrivalDate and departureDate required",
         hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026",
+      });
+    }
+
+    // Defensive: ensure chronological order (prevents Smoobu validation errors when dates are swapped)
+    if (aIso > dIso) {
+      const tmp = aIso;
+      aIso = dIso;
+      dIso = tmp;
+    }
+    if (aIso === dIso) {
+      return res.status(400).json({
+        error: "invalid_date_range",
+        hint: "departureDate must be after arrivalDate (mindestens 1 Nacht).",
       });
     }
 
@@ -2414,696 +1460,31 @@ app.post("/api/smoobu/availability", smoobuAvailabilityHandler);
 app.post("/concierge/availability", rateLimit, smoobuAvailabilityHandler);
 app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
 
-// Preferred API namespace for website booking widgets / landing pages
+// Dedicated Booking API (frontend <-> backend <-> Smoobu)
 app.post("/api/booking/availability", rateLimit, smoobuAvailabilityHandler);
-
-// Step 1 (Stripe-ready): Create a server-side quote for ONE apartment.
-// - Calls Smoobu availability/price
-// - Returns nights + total price + price/night
-// - Persists the quote in DB (or memory fallback) with a TTL
-async function bookingQuoteHandler(req, res) {
-  try {
-    if (!SMOOBU_CUSTOMER_ID) {
-      return res.status(500).json({ error: "SMOOBU_CUSTOMER_ID missing" });
-    }
-
-    const body = req.body || {};
-
-    const apartmentIdRaw =
-      body.apartmentId ??
-      body.apartment_id ??
-      body.smoobuApartmentId ??
-      body.smoobu_id ??
-      body.id ??
-      null;
-
-    const apartmentId = Number(apartmentIdRaw);
-    if (!Number.isFinite(apartmentId)) {
-      return res.status(400).json({
-        error: "apartmentId_required",
-        hint: "Provide apartmentId (Smoobu apartment id).",
-      });
-    }
-
-    const arrivalRaw = body.arrivalDate ?? body.arrival ?? body.from ?? body.checkin ?? "";
-    const departureRaw = body.departureDate ?? body.departure ?? body.to ?? body.checkout ?? "";
-
-    const aIso = toISODate(arrivalRaw);
-    const dIso = toISODate(departureRaw);
-
-    if (!aIso || !dIso) {
-      return res.status(400).json({
-        error: "dates_required",
-        hint: "Provide arrivalDate/from and departureDate/to (YYYY-MM-DD or D.M.YY).",
-      });
-    }
-
-    if (String(dIso) <= String(aIso)) {
-      return res.status(400).json({
-        error: "invalid_date_range",
-        hint: "departureDate must be after arrivalDate.",
-        validation_messages: {
-          departureDate: { callbackValue: "Departure date can't be before arrival date" },
-        },
-      });
-    }
-
-    const adultsRaw = body.adults;
-    const childrenRaw = body.children;
-    const adults = adultsRaw === undefined || adultsRaw === null || adultsRaw === "" ? null : Number(adultsRaw);
-    const children = childrenRaw === undefined || childrenRaw === null || childrenRaw === "" ? null : Number(childrenRaw);
-
-    const guestsRaw =
-      body.guests ??
-      (Number.isFinite(adults) || Number.isFinite(children) ? Number(adults || 0) + Number(children || 0) : null);
-
-    const guests = Number(guestsRaw);
-    if (!Number.isFinite(guests) || guests <= 0 || guests >= 30) {
-      return res.status(400).json({
-        error: "guests_required",
-        hint: "Provide guests (or adults + children).",
-      });
-    }
-
-    const discountCode =
-      typeof body.discountCode === "string"
-        ? body.discountCode.trim()
-        : typeof body.discount === "string"
-        ? body.discount.trim()
-        : "";
-
-    const unit = findUnitByApartmentId(apartmentId);
-    if (unit?.max_persons && guests > Number(unit.max_persons)) {
-      return res.status(400).json({
-        error: "guests_exceed_max",
-        hint: `Maximale Personenanzahl für diese Einheit: ${unit.max_persons}.`,
-        max_persons: Number(unit.max_persons),
-      });
-    }
-
-    const payload = {
-      arrivalDate: aIso,
-      departureDate: dIso,
-      apartments: [apartmentId],
-      customerId: Number(SMOOBU_CUSTOMER_ID),
-      guests,
-    };
-    if (discountCode) payload.discountCode = discountCode;
-
-    const data = await smoobuFetch("/booking/checkApartmentAvailability", {
-      method: "POST",
-      jsonBody: payload,
-    });
-
-    const availableApartments = Array.isArray(data?.availableApartments) ? data.availableApartments.map(Number) : [];
-    const isAvailable = availableApartments.includes(apartmentId);
-
-    if (!isAvailable) {
-      return res.status(409).json({
-        ok: false,
-        available: false,
-        error: "not_available",
-        apartmentId,
-        arrivalDate: aIso,
-        departureDate: dIso,
-        guests,
-      });
-    }
-
-    const priceInfo = data?.prices?.[String(apartmentId)] || data?.prices?.[apartmentId] || null;
-    const amount = Number(priceInfo?.price ?? NaN);
-    const currency = normalizeCurrencyCode(priceInfo?.currency || "EUR");
-    const amountCents = amountToCents(amount);
-
-    const nights = nightsBetween(aIso, dIso);
-    if (!Number.isFinite(nights) || nights <= 0) {
-      return res.status(400).json({
-        error: "invalid_nights",
-        hint: "Check arrival/departure dates.",
-      });
-    }
-
-    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(amountCents) || amountCents <= 0) {
-      return res.status(502).json({
-        error: "price_missing",
-        hint: "Smoobu returned no price for this unit/date/guests.",
-        apartmentId,
-        priceInfo,
-      });
-    }
-
-    const quoteId = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + BOOKING_QUOTE_TTL_MS).toISOString();
-
-    // Optional: create a signed offer token (can be used for booking later).
-    let offerToken = null;
-    let offerExpiresAt = null;
-    try {
-      // Keep token TTL aligned with quote TTL (but never less than 5 min / never more than 20 min by default).
-      const exp = Date.now() + BOOKING_QUOTE_TTL_MS;
-      offerToken = signOffer({
-        apartmentId,
-        arrivalDate: aIso,
-        departureDate: dIso,
-        guests,
-        price: amount,
-        currency,
-        discountCode: discountCode || null,
-        exp,
-      });
-      offerExpiresAt = new Date(exp).toISOString();
-    } catch {
-      offerToken = null;
-      offerExpiresAt = null;
-    }
-
-    const rec = {
-      quoteId,
-      apartmentId,
-      arrival: aIso,
-      departure: dIso,
-      nights,
-      guests,
-      adults: Number.isFinite(adults) ? adults : null,
-      children: Number.isFinite(children) ? children : null,
-      amountCents,
-      currency,
-      discountCode: discountCode || null,
-      offerToken,
-      offerExpiresAt,
-      status: "active",
-      createdAt,
-      expiresAt,
-      meta: {
-        source: "smoobu",
-        unit: unit
-          ? {
-              name: unit.name || null,
-              category: unit.category || null,
-              details_url: unit.details_url || null,
-              smoobu_id: Number(unit.smoobu_id) || apartmentId,
-            }
-          : null,
-      },
-    };
-
-    await dbCreateQuote(rec);
-
-    res.json({
-      ok: true,
-      quoteId,
-      createdAt,
-      expiresAt,
-      offerToken,
-      offerExpiresAt,
-      unit: unit
-        ? {
-            apartmentId,
-            name: unit.name,
-            category: unit.category,
-            details_url: unit.details_url,
-            max_persons: unit.max_persons ? Number(unit.max_persons) : null,
-          }
-        : { apartmentId },
-      stay: {
-        arrivalDate: aIso,
-        departureDate: dIso,
-        nights,
-        guests,
-        adults: Number.isFinite(adults) ? adults : null,
-        children: Number.isFinite(children) ? children : null,
-      },
-      price: {
-        amount,
-        amountCents,
-        currency,
-        perNight: Math.round((amount / nights) * 100) / 100,
-        perNightCents: Math.round(amountCents / nights),
-      },
-    });
-  } catch (err) {
-    console.error("❌ Quote error:", err);
-    res.status(err.status || 500).json({
-      error: "quote_error",
-      details: err.details || { message: err?.message || String(err) },
-    });
-  }
-}
-
-app.post("/api/booking/quote", rateLimit, bookingQuoteHandler);
-
-// Debug / internal usage: fetch a quote by id (returns 404 when expired).
-app.get("/api/booking/quote/:quoteId", async (req, res) => {
-  try {
-    const quoteId = String(req.params.quoteId || "").trim();
-    if (!quoteId) return res.status(400).json({ ok: false, error: "quoteId_required" });
-    const q = await dbGetQuote(quoteId);
-    if (!q) return res.status(404).json({ ok: false, error: "quote_not_found_or_expired" });
-    res.json({ ok: true, quote: q });
-  } catch (err) {
-    console.error("❌ Get quote error:", err);
-    res.status(500).json({ ok: false, error: "quote_get_error" });
-  }
-});
-
-// ---------------- Stripe payment (Payment Element) ----------------
-// We create the PaymentIntent only after we created a server-side quote.
-// Booking in Smoobu happens ONLY after Stripe confirms payment (webhook).
-
-function isStripeEnabled() {
-  return Boolean(stripe && STRIPE_PUBLISHABLE_KEY && STRIPE_WEBHOOK_SECRET);
-}
-
-function toStripeCurrency(cur) {
-  const raw = String(cur || "").trim();
-  if (!raw) return STRIPE_CURRENCY_DEFAULT;
-  const upper = raw.toUpperCase();
-  if (upper === "€" || upper === "EUR") return "eur";
-  if (/^[A-Z]{3}$/.test(upper)) return upper.toLowerCase();
-  return STRIPE_CURRENCY_DEFAULT;
-}
-
-app.get("/api/payment/stripe/config", async (_req, res) => {
-  // This is safe to expose: publishable key is intended for client-side usage.
-  // If Stripe isn't configured, frontend can fall back to "book now" without payment.
-  res.json({
-    ok: true,
-    enabled: Boolean(stripe && STRIPE_PUBLISHABLE_KEY),
-    publishableKey: STRIPE_PUBLISHABLE_KEY || null,
-  });
-});
-
-app.get("/api/payment/stripe/status/:paymentId", async (req, res) => {
-  try {
-    const paymentId = String(req.params.paymentId || "").trim();
-    if (!paymentId) return res.status(400).json({ ok: false, error: "paymentId_required" });
-    const p = await dbGetPayment(paymentId);
-    if (!p) return res.status(404).json({ ok: false, error: "payment_not_found" });
-    res.json({
-      ok: true,
-      payment: {
-        paymentId: p.paymentId,
-        quoteId: p.quoteId,
-        stripeIntentId: p.stripeIntentId,
-        amountCents: p.amountCents,
-        currency: p.currency,
-        status: p.status,
-        bookingId: p.bookingId,
-        lastError: p.lastError || null,
-        updatedAt: p.updatedAt,
-        createdAt: p.createdAt,
-      },
-    });
-  } catch (err) {
-    console.error("❌ payment status error:", err);
-    res.status(500).json({ ok: false, error: "payment_status_error" });
-  }
-});
-
-app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
-  try {
-    if (!stripe || !STRIPE_SECRET_KEY) {
-      return res.status(500).json({ ok: false, error: "stripe_not_configured" });
-    }
-    if (!STRIPE_PUBLISHABLE_KEY) {
-      return res.status(500).json({ ok: false, error: "stripe_publishable_key_missing" });
-    }
-    if (!STRIPE_WEBHOOK_SECRET) {
-      return res.status(500).json({ ok: false, error: "stripe_webhook_secret_missing" });
-    }
-
-    // For production Stripe flow we REQUIRE a real database (Render Postgres).
-    // In-memory fallback would lose state between restarts and break the webhook.
-    await ensureDb();
-    if (!pgPool) {
-      return res.status(500).json({
-        ok: false,
-        error: "db_required",
-        hint: "Set DATABASE_URL in Render so payment + booking state can be persisted.",
-      });
-    }
-
-    const body = req.body || {};
-    const quoteId = typeof body.quoteId === "string" ? body.quoteId.trim() : "";
-    if (!quoteId) {
-      return res.status(400).json({
-        ok: false,
-        error: "quoteId_required",
-        hint: "Create a quote first via POST /api/booking/quote.",
-      });
-    }
-
-    const quote = await dbGetQuote(quoteId);
-    if (!quote) return res.status(404).json({ ok: false, error: "quote_not_found_or_expired" });
-    if (quote.status && quote.status !== "active") {
-      return res.status(409).json({ ok: false, error: "quote_not_active", status: quote.status });
-    }
-
-    // Guest data (PII stays in OUR DB, not in Stripe metadata)
-    const firstName = typeof body.firstName === "string" ? body.firstName.trim() : "";
-    const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
-    const email = typeof body.email === "string" ? body.email.trim() : "";
-    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    const country = typeof body.country === "string" ? body.country.trim() : "";
-    const language = typeof body.language === "string" ? body.language.trim() : "de";
-    const notice = typeof body.notice === "string" ? body.notice.trim() : "";
-
-    const addressObj = (() => {
-      if (body.address && typeof body.address === "object") {
-        const street = typeof body.address.street === "string" ? body.address.street.trim() : "";
-        const postalCode = typeof body.address.postalCode === "string" ? body.address.postalCode.trim() : "";
-        const location = typeof body.address.location === "string" ? body.address.location.trim() : "";
-        return { street, postalCode, location };
-      }
-      const street = typeof body.street === "string" ? body.street.trim() : "";
-      const postalCode = typeof body.postalCode === "string" ? body.postalCode.trim() : (typeof body.zip === "string" ? body.zip.trim() : "");
-      const location = typeof body.location === "string" ? body.location.trim() : (typeof body.city === "string" ? body.city.trim() : "");
-      return { street, postalCode, location };
-    })();
-
-    const missing = [];
-    if (!firstName) missing.push("firstName");
-    if (!lastName) missing.push("lastName");
-    if (!email) missing.push("email");
-    if (!phone) missing.push("phone");
-    if (!addressObj.street) missing.push("address.street");
-    if (!addressObj.postalCode) missing.push("address.postalCode");
-    if (!addressObj.location) missing.push("address.location");
-    if (!country) missing.push("country");
-    if (missing.length) {
-      return res.status(400).json({ ok: false, error: "missing_guest_fields", missing });
-    }
-
-    // Guests: optional override; default from quote
-    const adults = Number(body.adults ?? quote.adults ?? quote.guests);
-    const children = Number(body.children ?? quote.children ?? 0);
-    const guests = Number(body.guests ?? (adults + children) ?? quote.guests);
-
-    // Extras
-    const extrasIn = body && typeof body.extras === "object" && body.extras ? body.extras : {};
-    const dogs = Math.max(0, Math.min(9, Number(extrasIn.dogs ?? body.dogs ?? 0) || 0));
-
-    const nights = Number(quote.nights) || 0;
-    const dogExtraCents = dogs > 0 && nights > 0 && DOG_PRICE_PER_NIGHT_CENTS > 0
-      ? dogs * nights * DOG_PRICE_PER_NIGHT_CENTS
-      : 0;
-
-    const stayAmountCents = Number(quote.amountCents) || 0;
-    const amountCents = stayAmountCents + dogExtraCents;
-
-    if (!Number.isFinite(amountCents) || amountCents <= 0) {
-      return res.status(400).json({ ok: false, error: "invalid_amount" });
-    }
-
-    const currency = toStripeCurrency(quote.currency);
-    const paymentId = crypto.randomUUID();
-    const createdAt = nowIso();
-
-    const paymentRec = {
-      paymentId,
-      quoteId,
-      stripeIntentId: null,
-      amountCents,
-      currency,
-      status: "payment_pending",
-      createdAt,
-      updatedAt: createdAt,
-      guest: { firstName, lastName, email, phone, address: addressObj, country, language, notice, adults, children, guests },
-      extras: { dogs, dogPricePerNightCents: DOG_PRICE_PER_NIGHT_CENTS, nights, dogExtraCents },
-      bookingId: null,
-      bookingJson: null,
-      lastError: null,
-    };
-
-    await dbCreatePayment(paymentRec);
-
-    const intent = await stripe.paymentIntents.create({
-      amount: amountCents,
-      currency,
-      automatic_payment_methods: { enabled: true },
-      metadata: {
-        paymentId,
-        quoteId,
-        apartmentId: String(quote.apartmentId),
-        arrival: String(quote.arrival),
-        departure: String(quote.departure),
-      },
-    });
-
-    if (!intent?.id || !intent?.client_secret) {
-      await dbUpdatePayment(paymentId, { status: "intent_error", lastError: "Stripe PaymentIntent missing id/client_secret" });
-      return res.status(502).json({ ok: false, error: "stripe_intent_failed" });
-    }
-
-    await dbUpdatePayment(paymentId, { stripeIntentId: intent.id, status: "intent_created", updatedAt: nowIso() });
-
-    res.json({
-      ok: true,
-      paymentId,
-      quoteId,
-      clientSecret: intent.client_secret,
-      publishableKey: STRIPE_PUBLISHABLE_KEY,
-      amountCents,
-      currency,
-      breakdown: {
-        stayAmountCents,
-        dogExtraCents,
-      },
-    });
-  } catch (err) {
-    console.error("❌ create-intent error:", err);
-    const status = err?.status || 500;
-    res.status(status).json({ ok: false, error: "create_intent_error", details: err?.details || { message: err?.message || String(err) } });
-  }
-});
-
-async function createSmoobuReservationForPayment({ quote, payment, stripeIntentId }) {
-  if (!quote || typeof quote !== "object") throw new Error("missing_quote");
-  if (!payment || typeof payment !== "object") throw new Error("missing_payment");
-
-  const guest = payment.guest || {};
-  const addressObj = guest.address && typeof guest.address === "object" ? guest.address : null;
-
-  const missing = [];
-  if (!guest.firstName) missing.push("firstName");
-  if (!guest.lastName) missing.push("lastName");
-  if (!guest.email) missing.push("email");
-  if (!guest.phone) missing.push("phone");
-  if (!guest.country) missing.push("country");
-  if (!addressObj?.street) missing.push("address.street");
-  if (!addressObj?.postalCode) missing.push("address.postalCode");
-  if (!addressObj?.location) missing.push("address.location");
-
-  if (missing.length) {
-    const err = new Error("missing_guest_fields");
-    err.details = { missing };
-    throw err;
-  }
-
-  // Offer derived from quote (server-side source of truth)
-  const offer = {
-    apartmentId: Number(quote.apartmentId),
-    arrivalDate: String(quote.arrival),
-    departureDate: String(quote.departure),
-    guests: Number(quote.guests),
-    price: Math.round((Number(quote.amountCents) || 0)) / 100,
-    currency: String(quote.currency || "EUR"),
-  };
-
-  const adults = Number.isFinite(Number(guest.adults)) ? Number(guest.adults) : (Number(quote.adults) || offer.guests);
-  const children = Number.isFinite(Number(guest.children)) ? Number(guest.children) : (Number(quote.children) || 0);
-
-  const extras = payment.extras && typeof payment.extras === "object" ? payment.extras : {};
-  const dogs = Math.max(0, Math.min(9, Number(extras.dogs ?? 0) || 0));
-  const nights = Number(extras.nights ?? quote.nights ?? 0) || 0;
-  const dogExtraCents = Number(extras.dogExtraCents ?? 0) || 0;
-
-  const noticeParts = [];
-  if (guest.notice) noticeParts.push(String(guest.notice).trim());
-  if (stripeIntentId) noticeParts.push(`Stripe PaymentIntent: ${stripeIntentId}`);
-  if (dogs > 0 && dogExtraCents > 0) {
-    noticeParts.push(`Hund: ${dogs}x (Extra ${Math.round(dogExtraCents) / 100} ${offer.currency})`);
-  }
-  const notice = noticeParts.filter(Boolean).join("\n");
-
-  const reservationPayload = {
-    arrivalDate: offer.arrivalDate,
-    departureDate: offer.departureDate,
-    apartmentId: offer.apartmentId,
-    channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
-
-    firstName: String(guest.firstName),
-    lastName: String(guest.lastName),
-    email: String(guest.email),
-    phone: String(guest.phone),
-    address: {
-      street: String(addressObj.street),
-      postalCode: String(addressObj.postalCode),
-      location: String(addressObj.location),
-    },
-    country: String(guest.country),
-    language: String(guest.language || "de"),
-
-    adults: Number.isFinite(adults) ? adults : offer.guests,
-    children: Number.isFinite(children) ? children : 0,
-
-    // Base stay price from quote. Extras are applied as price elements.
-    price: offer.price,
-    notice,
-  };
-
-  const result = await smoobuFetch("/api/reservations", {
-    method: "POST",
-    jsonBody: reservationPayload,
-  });
-
-  const bookingId = result?.id ?? result?.reservationId ?? null;
-
-  // 🔄 Update chat snapshot after a successful Stripe-paid booking
-  try {
-    if (bookingId) scheduleChatSnapshotRefresh('booking_created:stripe');
-  } catch {}
-
-  const extrasApplied = { dogs: 0, nights: 0, dogExtra: 0, addedPriceElements: [], errors: [] };
-  extrasApplied.dogs = dogs;
-  extrasApplied.nights = nights;
-  extrasApplied.dogExtra = Math.round(dogExtraCents) / 100;
-
-  // Add dog extra as price element in Smoobu (best effort)
-  if (bookingId && dogs > 0 && dogExtraCents > 0 && nights > 0) {
-    const amount = Math.round(dogExtraCents) / 100;
-    const pePayload = {
-      name: `Hund (${dogs}x)`,
-      amount,
-      tax: 0,
-      calculationType: 0,
-    };
-    try {
-      const peRes = await smoobuFetch(`/api/reservations/${encodeURIComponent(bookingId)}/price-elements`, {
-        method: "POST",
-        jsonBody: pePayload,
-      });
-      extrasApplied.addedPriceElements.push({ type: "dog", amount, response: peRes });
-    } catch (e) {
-      extrasApplied.errors.push({ type: "dog", details: e?.details || { message: e?.message || String(e) } });
-    }
-  }
-
-  return {
-    bookingId,
-    reservation: result,
-    offerUsed: {
-      apartmentId: offer.apartmentId,
-      arrival: offer.arrivalDate,
-      departure: offer.departureDate,
-      guests: offer.guests,
-      price: offer.price,
-      currency: offer.currency,
-    },
-    extrasApplied,
-  };
-}
-
-app.post("/api/payment/stripe/webhook", async (req, res) => {
-  // Stripe will retry webhooks. This endpoint MUST be idempotent.
-  try {
-    if (!stripe || !STRIPE_WEBHOOK_SECRET) {
-      return res.status(500).send("Stripe not configured");
-    }
-    const sig = req.headers["stripe-signature"];
-    if (!sig) return res.status(400).send("Missing stripe-signature");
-
-    let event;
-    try {
-      const raw = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
-      event = stripe.webhooks.constructEvent(raw, sig, STRIPE_WEBHOOK_SECRET);
-    } catch (e) {
-      console.error("❌ stripe webhook signature verification failed:", e?.message || e);
-      return res.status(400).send("Webhook signature verification failed");
-    }
-
-    const eventId = event?.id || "";
-    const type = event?.type || "";
-    const obj = event?.data?.object || null;
-    const stripeIntentId = obj?.id || null;
-    let paymentId = obj?.metadata?.paymentId || null;
-
-    // If metadata is missing, try resolving our paymentId from the PaymentIntent id.
-    if (!paymentId && stripeIntentId) {
-      const p2 = await dbGetPaymentByIntent(stripeIntentId);
-      if (p2?.paymentId) paymentId = p2.paymentId;
-    }
-
-    // Record event id (dedupe)
-    const isNew = eventId ? await dbMarkStripeEventProcessed(eventId, { type, paymentId, stripeIntentId }) : true;
-    if (!isNew) {
-      return res.status(200).json({ ok: true, received: true, duplicate: true });
-    }
-
-    if (!paymentId) {
-      // Nothing we can do. Still return 200 so Stripe doesn't retry forever.
-      return res.status(200).json({ ok: true, received: true, ignored: true });
-    }
-
-    const payment = await dbGetPayment(paymentId);
-    if (!payment) {
-      return res.status(200).json({ ok: true, received: true, ignored: true });
-    }
-
-    // Status updates
-    if (type === "payment_intent.succeeded") {
-      await dbUpdatePayment(paymentId, { status: "paid", updatedAt: nowIso() });
-
-      // Finalize booking (Smoobu)
-      try {
-        const quote = await dbGetQuote(payment.quoteId);
-        if (!quote) {
-          await dbUpdatePayment(paymentId, { status: "booking_failed", lastError: "quote_not_found_or_expired", updatedAt: nowIso() });
-          return res.status(200).json({ ok: true, received: true });
-        }
-
-        const booking = await createSmoobuReservationForPayment({ quote, payment, stripeIntentId });
-        await dbUpdatePayment(paymentId, {
-          status: "booked",
-          bookingId: booking.bookingId,
-          bookingJson: booking,
-          lastError: null,
-          updatedAt: nowIso(),
-        });
-      } catch (e) {
-        console.error("❌ booking after payment failed:", e?.message || e);
-        await dbUpdatePayment(paymentId, {
-          status: "booking_failed",
-          lastError: e?.message || String(e),
-          bookingJson: { error: e?.details || { message: e?.message || String(e) } },
-          updatedAt: nowIso(),
-        });
-      }
-    } else if (type === "payment_intent.payment_failed") {
-      const msg = obj?.last_payment_error?.message || "payment_failed";
-      await dbUpdatePayment(paymentId, { status: "payment_failed", lastError: msg, updatedAt: nowIso() });
-    } else if (type === "payment_intent.canceled") {
-      await dbUpdatePayment(paymentId, { status: "payment_canceled", updatedAt: nowIso() });
-    }
-
-    return res.status(200).json({ ok: true, received: true });
-  } catch (err) {
-    console.error("❌ stripe webhook handler error:", err);
-    // Return 200 to avoid infinite retries on our internal errors.
-    return res.status(200).json({ ok: true, received: true });
-  }
-});
 
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
 async function computeOfferPayloads(arrivalDate, departureDate, guests) {
-  const aIso = toISODate(arrivalDate);
-  const dIso = toISODate(departureDate);
+  let aIso = toISODate(arrivalDate);
+  let dIso = toISODate(departureDate);
   if (!aIso || !dIso) {
     const err = new Error("Invalid date format");
     err.status = 400;
     err.details = { hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026" };
+    throw err;
+  }
+
+  // Defensive: ensure chronological order (prevents swapped date ranges)
+  if (aIso > dIso) {
+    const tmp = aIso;
+    aIso = dIso;
+    dIso = tmp;
+  }
+  if (aIso === dIso) {
+    const err = new Error("Invalid date range");
+    err.status = 400;
+    err.details = { error: "invalid_date_range", hint: "departureDate must be after arrivalDate (mindestens 1 Nacht)." };
     throw err;
   }
 
@@ -3152,7 +1533,7 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
   return offerPayloads;
 }
 
-async function smoobuBookHandler(req, res) {
+async function publicBookHandler(req, res) {
   try {
     const body = req.body || {};
 
@@ -3211,9 +1592,10 @@ async function smoobuBookHandler(req, res) {
     const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
     const email = typeof body.email === "string" ? body.email.trim() : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-
-    // Some Smoobu setups require address/country/phone for direct bookings.
-    // In the Smoobu API, "address" is an object:
+    // Some Smoobu setups (incl. booking tool validation settings) require
+    // address/country/phone for direct bookings.
+    //
+    // IMPORTANT: In the Smoobu API, "address" is an object, not a string:
     //   address: { street, postalCode, location }, plus top-level "country".
     // We accept multiple input shapes for compatibility (frontend should send the object).
     const country = typeof body.country === "string" ? body.country.trim() : "";
@@ -3336,6 +1718,7 @@ async function smoobuBookHandler(req, res) {
     // --- Build Smoobu reservation payload ---
     const reservationPayload = {
       // Smoobu API expects arrivalDate/departureDate (YYYY-MM-DD)
+      // Docs: https://docs.smoobu.com/#create-booking
       arrivalDate: offer.arrivalDate,
       departureDate: offer.departureDate,
       apartmentId: offer.apartmentId,
@@ -3369,11 +1752,6 @@ async function smoobuBookHandler(req, res) {
 
     // Some Smoobu responses return {id:...} others {reservationId:...}
     const bookingId = result?.id ?? result?.reservationId ?? null;
-
-    // 🔄 Update chat snapshot so chat.alpenlodge.info reflects the new reservation quickly
-    try {
-      if (bookingId) scheduleChatSnapshotRefresh('booking_created:concierge_book');
-    } catch {}
 
     // --- Optional extras (best effort) ---
     // Frontend may send extras like dogs; we attach them as price elements to the reservation.
@@ -3444,8 +1822,8 @@ async function smoobuBookHandler(req, res) {
   }
 }
 
-app.post("/concierge/book", rateLimit, smoobuBookHandler);
-app.post("/api/booking/book", rateLimit, smoobuBookHandler);
+app.post("/concierge/book", rateLimit, publicBookHandler);
+app.post("/api/booking/book", rateLimit, publicBookHandler);
 
 async function conciergeChatHandler(req, res) {
   try {
@@ -3485,7 +1863,7 @@ async function conciergeChatHandler(req, res) {
       const sys = [
         "Du bist der Alpenlodge Concierge.",
         "Antworten kurz, freundlich und konkret.",
-        "Wenn die Frage nach Verfügbarkeit/Preis klingt, frage nach: Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer.",
+        "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.",
         "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
         `Seite: ${page}. Locale: ${locale}.`,
       ].join(" ");
@@ -3528,20 +1906,23 @@ async function conciergeChatHandler(req, res) {
     }
 
 
-    // Booking / availability / prices (Smoobu) — deterministic, no hallucinations
-    try {
-      const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
-      if (booking) return res.json(booking);
-    } catch (err) {
-      console.error("❌ Booking flow error:", err);
-      const isEn = String(locale || "").toLowerCase().startsWith("en");
-      return res.status(err.status || 500).json({
-        reply: isEn
-          ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
-          : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
-        error: "booking_error",
-        details: err.details || null,
-      });
+    // Booking / availability / prices (Smoobu) — OPTIONAL.
+    // Default: disabled (Concierge should be Auskunft only). Enable via env: CONCIERGE_ENABLE_BOOKING_CHAT=true
+    if (CONCIERGE_ENABLE_BOOKING_CHAT) {
+      try {
+        const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
+        if (booking) return res.json(booking);
+      } catch (err) {
+        console.error("❌ Booking flow error:", err);
+        const isEn = String(locale || "").toLowerCase().startsWith("en");
+        return res.status(err.status || 500).json({
+          reply: isEn
+            ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
+            : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
+          error: "booking_error",
+          details: err.details || null,
+        });
+      }
     }
 
 // Knowledge-first (NO hallucinations): lists/recommendations come from knowledge/verified.json
@@ -3749,20 +2130,4 @@ app.post("/api/concierge", conciergeChatHandler);
 // Alias from the API design doc
 app.post("/concierge/chat", conciergeChatHandler);
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`🤖 Concierge listening on ${PORT}`);
-
-  // Warm up chat snapshot (non-blocking) + keep it fresh.
-  // Note: Render instances may sleep; snapshot refresh is also triggered on-demand.
-  refreshChatSnapshot({ days: CHAT_SNAPSHOT_DAYS_DEFAULT }).catch((e) => {
-    console.error('⚠️ chat snapshot warmup failed:', e?.message || e);
-  });
-
-  if (CHAT_SNAPSHOT_REFRESH_MODE === 'interval' || CHAT_SNAPSHOT_REFRESH_MODE === 'hybrid') {
-    setInterval(() => {
-      refreshChatSnapshot({ days: CHAT_SNAPSHOT_DAYS_DEFAULT }).catch((e) => {
-        console.error('⚠️ chat snapshot scheduled refresh failed:', e?.message || e);
-      });
-    }, CHAT_SNAPSHOT_TTL_MS);
-  }
-});
+app.listen(PORT, () => console.log(`🤖 Concierge listening on ${PORT}`));
