@@ -22,6 +22,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/ad
 const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
+const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "").toLowerCase() === "true";
 const SMOOBU_BASE = "https://login.smoobu.com";
 
 // Mini-Cache (damit wir Smoobu nicht spammen)
@@ -1283,17 +1284,26 @@ if (!apiKey) {
   process.exit(1);
 }
 const openai = new OpenAI({ apiKey });
-
-// ---------------- Stripe + DB (v57) ----------------
+// ---------------- Stripe + DB (Pay -> Webhook -> Book) ----------------
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const STRIPE_CURRENCY = (process.env.STRIPE_CURRENCY || "eur").toLowerCase();
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
-const DB_SSL = String(process.env.DB_SSL || "").toLowerCase() === "true" || String(process.env.PGSSLMODE || "").toLowerCase() === "require" || /sslmode=require/i.test(DATABASE_URL);
+const DB_SSL =
+  String(process.env.DB_SSL || "").toLowerCase() === "true" ||
+  String(process.env.PGSSLMODE || "").toLowerCase() === "require" ||
+  /sslmode=require/i.test(DATABASE_URL);
+
 const { Pool } = pg;
-const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: DB_SSL ? { rejectUnauthorized: false } : undefined, max: 5 }) : null;
+const db = DATABASE_URL
+  ? new Pool({
+      connectionString: DATABASE_URL,
+      ssl: DB_SSL ? { rejectUnauthorized: false } : undefined,
+      max: 5,
+    })
+  : null;
 
 async function dbInit() {
   if (!db) return { ok: false, reason: "DATABASE_URL not set" };
@@ -1326,9 +1336,12 @@ const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY, { apiVersion: "
 
 async function dbUpsertStripeEvent(eventId, type) {
   if (!db) return false;
-  await db.query("INSERT INTO stripe_events(event_id, type) VALUES($1,$2) ON CONFLICT (event_id) DO NOTHING", [eventId, type]);
+  await db.query(
+    "INSERT INTO stripe_events(event_id, type) VALUES($1,$2) ON CONFLICT (event_id) DO NOTHING",
+    [eventId, type]
+  );
   const r = await db.query("SELECT event_id FROM stripe_events WHERE event_id=$1", [eventId]);
-  return r.rowCount === 1;
+  return r.rowCount == 1;
 }
 
 function nightsBetweenIso(arrivalIso, departureIso) {
@@ -1337,14 +1350,15 @@ function nightsBetweenIso(arrivalIso, departureIso) {
     const d = new Date(String(departureIso) + "T00:00:00Z").getTime();
     const n = Math.round((d - a) / 86400000);
     return Number.isFinite(n) && n > 0 ? n : 0;
-  } catch { return 0; }
+  } catch {
+    return 0;
+  }
 }
-function toCents(amount) {
+function cents(amount) {
   const n = Number(amount);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.round(n * 100);
 }
-
 // ✅ Health check for Render / monitoring
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -1401,6 +1415,172 @@ app.get("/api/debug/version", (req, res) => {
     },
   });
 });
+// ---------------- Debug: DB status ----------------
+app.get("/api/debug/db", async (req, res) => {
+  try {
+    if (!db) return res.json({ ok: true, kind: "memory", databaseUrlSet: false, ready: false });
+    const r = await db.query("SELECT 1 as ok");
+    res.json({ ok: true, kind: "postgres", databaseUrlSet: true, ready: r.rowCount === 1 });
+  } catch (e) {
+    res.status(500).json({ ok: false, kind: "postgres", databaseUrlSet: Boolean(DATABASE_URL), ready: false, error: e?.message || String(e) });
+  }
+});
+
+// ---------------- Stripe config (publishable key for frontend) ----------------
+app.get("/api/payment/stripe/config", (req, res) => {
+  res.json({
+    ok: true,
+    enabled: Boolean(STRIPE_SECRET_KEY && STRIPE_PUBLISHABLE_KEY && STRIPE_WEBHOOK_SECRET && db),
+    publishableKey: STRIPE_PUBLISHABLE_KEY || null,
+    currency: STRIPE_CURRENCY,
+  });
+});
+
+// ---------------- Stripe: Create PaymentIntent ----------------
+app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
+  try {
+    if (!stripe || !db) return res.status(500).json({ ok: false, error: "stripe_not_configured" });
+
+    const body = req.body || {};
+    const offerToken = typeof body.offerToken === "string" ? body.offerToken.trim() : "";
+    if (!offerToken) return res.status(400).json({ ok: false, error: "missing_offerToken" });
+
+    let offer;
+    try { offer = verifyOffer(offerToken); }
+    catch (e) { return res.status(400).json({ ok: false, error: "invalid_offerToken", message: e?.message || String(e) }); }
+
+    const guest = (body.guest && typeof body.guest === "object") ? body.guest : {};
+    const extras = (body.extras && typeof body.extras === "object") ? body.extras : {};
+
+    const basePrice = Number(offer.price || 0);
+    const nights = nightsBetweenIso(offer.arrivalDate, offer.departureDate);
+    const dogs = Number(extras.dogs || 0);
+    const dogPricePerNight = Number(extras.dogPricePerNight || 10);
+    const dogExtra = (Number.isFinite(dogs) && dogs > 0 && Number.isFinite(dogPricePerNight) && dogPricePerNight > 0 && nights > 0)
+      ? (dogs * dogPricePerNight * nights)
+      : 0;
+
+    const total = Math.max(0, basePrice + dogExtra);
+    const amountCents = cents(total);
+    if (!amountCents) return res.status(400).json({ ok: false, error: "invalid_amount" });
+
+    const paymentId = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+
+    const intent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: STRIPE_CURRENCY,
+      automatic_payment_methods: { enabled: true },
+      metadata: { booking_payment_id: paymentId }
+    });
+
+    await db.query(
+      "INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extras_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, json.dumps({"offer":offer,"offerToken":offerToken}), json.dumps(guest), json.dumps(extras)]
+    );
+
+    return res.json({ ok:true, paymentId, paymentIntentId:intent.id, clientSecret:intent.client_secret, amountCents, currency:STRIPE_CURRENCY });
+  } catch (e) {
+    console.error("❌ stripe create-intent error:", e);
+    res.status(500).json({ ok:false, error:"stripe_error", details:{ message: e?.message || str(e)}});
+  }
+});
+
+// ---------------- Stripe: Status ----------------
+app.get("/api/payment/stripe/status/:paymentId", async (req, res) => {
+  try {
+    const id = String(req.params.paymentId || "").trim();
+    if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
+    if (!db) return res.status(500).json({ ok:false, error:"db_not_configured" });
+    const r = await db.query("SELECT id,status,amount_cents,currency,stripe_payment_intent_id,smoobu_reservation_id,last_error,created_at FROM booking_payments WHERE id=$1", [id]);
+    if (!r.rowCount) return res.status(404).json({ ok:false, error:"not_found" });
+    return res.json({ ok:true, **r.rows[0] });
+  } catch(e) {
+    res.status(500).json({ ok:false, error:"status_error", details: e?.message || String(e) });
+  }
+});
+
+// ---------------- Stripe: Webhook (PAYMENT -> BOOK) ----------------
+app.post("/api/payment/stripe/webhook", async (req, res) => {
+  try {
+    if (!stripe || !db) return res.status(500).send("stripe_not_configured");
+    const sig = req.headers["stripe-signature"];
+    if (!sig || typeof sig !== "string") return res.status(400).send("missing_signature");
+    let event;
+    try { event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET); }
+    catch (e) { return res.status(400).send("invalid_signature"); }
+
+    const isNew = await dbUpsertStripeEvent(event.id, event.type);
+    if (!isNew) return res.status(200).send("duplicate_event_ok");
+
+    const type = event.type;
+    const pi = event.data?.object;
+    const paymentIntentId = String(pi?.id || "");
+    const r0 = await db.query("SELECT * FROM booking_payments WHERE stripe_payment_intent_id=$1", [paymentIntentId]);
+    if (!r0.rowCount) return res.status(200).send("unknown_intent_ok");
+    const paymentId = r0.rows[0].id;
+
+    if (type !== "payment_intent.succeeded") {
+      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "payment_failed", JSON.stringify({ type })]);
+      return res.status(200).send("ok");
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const r = await client.query("SELECT * FROM booking_payments WHERE id=$1 FOR UPDATE", [paymentId]);
+      const row = r.rows[0];
+      if (row.status === "booked" && row.smoobu_reservation_id) { await client.query("COMMIT"); return res.status(200).send("already_booked_ok"); }
+
+      await client.query("UPDATE booking_payments SET status=$2 WHERE id=$1", [paymentId, "paid"]);
+
+      const offerWrap = JSON.parse(row.offer_json);
+      const guest = JSON.parse(row.guest_json);
+      const extras = JSON.parse(row.extras_json);
+
+      const bookBody = {
+        offerToken: offerWrap.offerToken,
+        firstName: guest.firstName || "",
+        lastName: guest.lastName || "",
+        email: guest.email || "",
+        phone: guest.phone || "",
+        address: guest.address || {},
+        country: guest.country || "",
+        adults: Number(guest.adults || offerWrap.offer?.guests || 0) || 0,
+        children: Number(guest.children || 0) || 0,
+        language: guest.language || "de",
+        notice: (guest.notice || "").toString().slice(0,800),
+        extras,
+      };
+
+      const fakeReq = { body: bookBody, headers: {}, socket: { remoteAddress: "stripe-webhook" } };
+      let outStatus = 200;
+      let outJson = null;
+      const fakeRes = { status: (c)=>{outStatus=c; return fakeRes;}, json:(j)=>{outJson=j; return fakeRes;} };
+
+      await publicBookHandler(fakeReq, fakeRes);
+
+      if (outStatus !== 200 || !outJson || !outJson.ok) {
+        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ outStatus, outJson })]);
+        await client.query("COMMIT");
+        return res.status(200).send("booking_failed_recorded");
+      }
+
+      const smoobuId = outJson.id ? String(outJson.id) : null;
+      await client.query("UPDATE booking_payments SET status=$2, smoobu_reservation_id=$3 WHERE id=$1", [paymentId, "booked", smoobuId]);
+      await client.query("COMMIT");
+      return res.status(200).send("booked_ok");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ message: e?.message || String(e) })]);
+      return res.status(200).send("booking_failed");
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error("❌ stripe webhook error:", e);
+    return res.status(500).send("webhook_error");
+  }
+});
 
 // ---------------- Smoobu proxy endpoints (für Website/Concierge) ----------------
 // 1) Apartments
@@ -1433,12 +1613,25 @@ async function smoobuAvailabilityHandler(req, res) {
     }
 
     const { arrivalDate, departureDate, apartments, guests, discountCode } = req.body || {};
-    const aIso = toISODate(arrivalDate);
-    const dIso = toISODate(departureDate);
+    let aIso = toISODate(arrivalDate);
+    let dIso = toISODate(departureDate);
     if (!aIso || !dIso) {
       return res.status(400).json({
         error: "arrivalDate and departureDate required",
         hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026",
+      });
+    }
+
+    // Defensive: ensure chronological order (prevents Smoobu validation errors when dates are swapped)
+    if (aIso > dIso) {
+      const tmp = aIso;
+      aIso = dIso;
+      dIso = tmp;
+    }
+    if (aIso === dIso) {
+      return res.status(400).json({
+        error: "invalid_date_range",
+        hint: "departureDate must be after arrivalDate (mindestens 1 Nacht).",
       });
     }
 
@@ -1512,15 +1705,31 @@ app.post("/api/smoobu/availability", smoobuAvailabilityHandler);
 app.post("/concierge/availability", rateLimit, smoobuAvailabilityHandler);
 app.post("/api/availability", rateLimit, smoobuAvailabilityHandler);
 
+// Dedicated Booking API (frontend <-> backend <-> Smoobu)
+app.post("/api/booking/availability", rateLimit, smoobuAvailabilityHandler);
+
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
 async function computeOfferPayloads(arrivalDate, departureDate, guests) {
-  const aIso = toISODate(arrivalDate);
-  const dIso = toISODate(departureDate);
+  let aIso = toISODate(arrivalDate);
+  let dIso = toISODate(departureDate);
   if (!aIso || !dIso) {
     const err = new Error("Invalid date format");
     err.status = 400;
     err.details = { hint: "Use YYYY-MM-DD or e.g. 1.1.26 / 01.01.2026" };
+    throw err;
+  }
+
+  // Defensive: ensure chronological order (prevents swapped date ranges)
+  if (aIso > dIso) {
+    const tmp = aIso;
+    aIso = dIso;
+    dIso = tmp;
+  }
+  if (aIso === dIso) {
+    const err = new Error("Invalid date range");
+    err.status = 400;
+    err.details = { error: "invalid_date_range", hint: "departureDate must be after arrivalDate (mindestens 1 Nacht)." };
     throw err;
   }
 
@@ -1569,7 +1778,7 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
   return offerPayloads;
 }
 
-app.post("/concierge/book", rateLimit, async (req, res) => {
+async function publicBookHandler(req, res) {
   try {
     const body = req.body || {};
 
@@ -1628,13 +1837,88 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
     const email = typeof body.email === "string" ? body.email.trim() : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+    // Some Smoobu setups (incl. booking tool validation settings) require
+    // address/country/phone for direct bookings.
+    //
+    // IMPORTANT: In the Smoobu API, "address" is an object, not a string:
+    //   address: { street, postalCode, location }, plus top-level "country".
+    // We accept multiple input shapes for compatibility (frontend should send the object).
+    const country = typeof body.country === "string" ? body.country.trim() : "";
     const language = typeof body.language === "string" ? body.language.trim() : "de";
     const notice = typeof body.notice === "string" ? body.notice.trim() : "";
 
-    if (!firstName || !lastName || !email) {
+    const addressObj = (() => {
+      // Preferred: address as object
+      if (body.address && typeof body.address === "object") {
+        const street = typeof body.address.street === "string" ? body.address.street.trim() : "";
+        const postalCode = typeof body.address.postalCode === "string" ? body.address.postalCode.trim() : "";
+        const location = typeof body.address.location === "string" ? body.address.location.trim() : "";
+        return { street, postalCode, location };
+      }
+
+      // Legacy: separate fields
+      const street = typeof body.street === "string" ? body.street.trim() : "";
+      const postalCode =
+        typeof body.postalCode === "string"
+          ? body.postalCode.trim()
+          : typeof body.zip === "string"
+            ? body.zip.trim()
+            : "";
+      const location =
+        typeof body.location === "string"
+          ? body.location.trim()
+          : typeof body.city === "string"
+            ? body.city.trim()
+            : "";
+
+      if (street || postalCode || location) {
+        return { street, postalCode, location };
+      }
+
+      // Legacy: single line address string e.g. "Street 1, 6335 Thiersee"
+      const line = typeof body.address === "string" ? body.address.trim() : "";
+      if (!line) return { street: "", postalCode: "", location: "" };
+
+      const parts = line
+        .split(",")
+        .map((p) => String(p || "").trim())
+        .filter(Boolean);
+
+      const street2 = parts[0] || line;
+      const rest = parts.slice(1).join(" ").trim();
+
+      let postal2 = "";
+      let loc2 = "";
+
+      if (rest) {
+        const m = rest.match(/^(\d{3,10})\s+(.*)$/);
+        if (m) {
+          postal2 = m[1];
+          loc2 = (m[2] || "").trim();
+        } else {
+          loc2 = rest;
+        }
+      }
+
+      return { street: street2, postalCode: postal2, location: loc2 };
+    })();
+
+    // Guest validation (frontend should already enforce this, but keep backend strict).
+    const missing = [];
+    if (!firstName) missing.push("firstName");
+    if (!lastName) missing.push("lastName");
+    if (!email) missing.push("email");
+    if (!phone) missing.push("phone");
+    if (!addressObj.street) missing.push("address.street");
+    if (!addressObj.postalCode) missing.push("address.postalCode");
+    if (!addressObj.location) missing.push("address.location");
+    if (!country) missing.push("country");
+
+    if (missing.length) {
       return res.status(400).json({
         error: "missing_guest_fields",
-        hint: "Missing: firstName, lastName, email (phone optional).",
+        missing,
+        hint: "Provide guest fields: firstName, lastName, email, phone, address{street,postalCode,location}, country.",
       });
     }
 
@@ -1642,11 +1926,46 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     const children = Number(body.children ?? 0);
     const guests = Number(body.guests ?? (adults + children) ?? offer.guests);
 
+    // Defensive: normalize offer date order + format (prevents Smoobu validation errors)
+    // We accept offer tokens from older versions too (arrival/departure vs arrivalDate/departureDate)
+    if (offer) {
+      const rawArrival = offer.arrivalDate ?? offer.arrival ?? "";
+      const rawDeparture = offer.departureDate ?? offer.departure ?? "";
+
+      let aIso = toISODate(rawArrival);
+      let dIso = toISODate(rawDeparture);
+
+      if (!aIso || !dIso) {
+        return res.status(400).json({
+          error: "invalid_date_format",
+          hint: "arrival/departure must be YYYY-MM-DD (or a parseable date like 01.02.2026).",
+          received: { arrival: rawArrival || null, departure: rawDeparture || null },
+        });
+      }
+
+      if (aIso > dIso) {
+        const tmp = aIso;
+        aIso = dIso;
+        dIso = tmp;
+      }
+
+      if (aIso === dIso) {
+        return res.status(400).json({
+          error: "invalid_date_range",
+          hint: "departureDate must be after arrivalDate (mindestens 1 Nacht).",
+        });
+      }
+
+      offer.arrivalDate = aIso;
+      offer.departureDate = dIso;
+    }
+
     // --- Build Smoobu reservation payload ---
     const reservationPayload = {
-      // Smoobu expects YYYY-MM-DD
-      arrival: offer.arrivalDate,
-      departure: offer.departureDate,
+      // Smoobu API expects arrivalDate/departureDate (YYYY-MM-DD)
+      // Docs: https://docs.smoobu.com/#create-booking
+      arrivalDate: offer.arrivalDate,
+      departureDate: offer.departureDate,
       apartmentId: offer.apartmentId,
       channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
 
@@ -1655,6 +1974,8 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
       lastName,
       email,
       phone,
+      address: addressObj,
+      country,
       language,
 
       // Guests
@@ -1663,7 +1984,6 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
 
       // Price (best effort; Smoobu may recalc)
       price: offer.price,
-      currency: offer.currency,
 
       // Internal note (shows up for you, not the guest)
       notice,
@@ -1678,6 +1998,50 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     // Some Smoobu responses return {id:...} others {reservationId:...}
     const bookingId = result?.id ?? result?.reservationId ?? null;
 
+    // --- Optional extras (best effort) ---
+    // Frontend may send extras like dogs; we attach them as price elements to the reservation.
+    const extras = (body && typeof body.extras === 'object' && body.extras) ? body.extras : {};
+    const extrasApplied = { dogs: 0, dogPricePerNight: 0, nights: 0, addedPriceElements: [], errors: [] };
+
+    try {
+      const dogs = Number(extras.dogs ?? 0);
+      const dogPricePerNight = Number(extras.dogPricePerNight ?? 0);
+
+      // nights between arrival and departure
+      const nights = (() => {
+        const a = new Date(String(offer.arrivalDate) + 'T00:00:00Z');
+        const d = new Date(String(offer.departureDate) + 'T00:00:00Z');
+        const ms = d.getTime() - a.getTime();
+        const n = Math.round(ms / 86400000);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+      })();
+
+      extrasApplied.dogs = Number.isFinite(dogs) ? dogs : 0;
+      extrasApplied.dogPricePerNight = Number.isFinite(dogPricePerNight) ? dogPricePerNight : 0;
+      extrasApplied.nights = nights;
+
+      if (bookingId && extrasApplied.dogs > 0 && extrasApplied.dogPricePerNight > 0 && nights > 0) {
+        const amount = Math.round(extrasApplied.dogs * extrasApplied.dogPricePerNight * nights * 100) / 100;
+        const pePayload = {
+          name: `Hund (${extrasApplied.dogs}x)`,
+          amount,
+          tax: 0,
+          calculationType: 0,
+        };
+        try {
+          const peRes = await smoobuFetch(`/api/reservations/${encodeURIComponent(bookingId)}/price-elements`, {
+            method: 'POST',
+            jsonBody: pePayload,
+          });
+          extrasApplied.addedPriceElements.push({ type: 'dog', amount, response: peRes });
+        } catch (e) {
+          extrasApplied.errors.push({ type: 'dog', details: e?.details || { message: e?.message || String(e) } });
+        }
+      }
+    } catch (e) {
+      extrasApplied.errors.push({ type: 'extras', details: { message: e?.message || String(e) } });
+    }
+
     return res.status(200).json({
       ok: true,
       id: bookingId,
@@ -1689,6 +2053,7 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
         price: offer.price,
         currency: offer.currency,
       },
+      extrasApplied,
       result,
     });
   } catch (err) {
@@ -1700,7 +2065,10 @@ app.post("/concierge/book", rateLimit, async (req, res) => {
     }
     res.status(status).json({ error: "booking_error", details });
   }
-});
+}
+
+app.post("/concierge/book", rateLimit, publicBookHandler);
+app.post("/api/booking/book", rateLimit, publicBookHandler);
 
 async function conciergeChatHandler(req, res) {
   try {
@@ -1740,7 +2108,7 @@ async function conciergeChatHandler(req, res) {
       const sys = [
         "Du bist der Alpenlodge Concierge.",
         "Antworten kurz, freundlich und konkret.",
-        "Wenn die Frage nach Verfügbarkeit/Preis klingt, frage nach: Anreise, Abreise, Anzahl Personen und (falls genannt) Wohnungsnummer.",
+        "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.",
         "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
         `Seite: ${page}. Locale: ${locale}.`,
       ].join(" ");
@@ -1783,20 +2151,23 @@ async function conciergeChatHandler(req, res) {
     }
 
 
-    // Booking / availability / prices (Smoobu) — deterministic, no hallucinations
-    try {
-      const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
-      if (booking) return res.json(booking);
-    } catch (err) {
-      console.error("❌ Booking flow error:", err);
-      const isEn = String(locale || "").toLowerCase().startsWith("en");
-      return res.status(err.status || 500).json({
-        reply: isEn
-          ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
-          : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
-        error: "booking_error",
-        details: err.details || null,
-      });
+    // Booking / availability / prices (Smoobu) — OPTIONAL.
+    // Default: disabled (Concierge should be Auskunft only). Enable via env: CONCIERGE_ENABLE_BOOKING_CHAT=true
+    if (CONCIERGE_ENABLE_BOOKING_CHAT) {
+      try {
+        const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
+        if (booking) return res.json(booking);
+      } catch (err) {
+        console.error("❌ Booking flow error:", err);
+        const isEn = String(locale || "").toLowerCase().startsWith("en");
+        return res.status(err.status || 500).json({
+          reply: isEn
+            ? "Sorry — I couldn't check availability/prices right now. Please try again in a moment."
+            : "Sorry — ich konnte Verfügbarkeit/Preise gerade nicht prüfen. Bitte versuch es gleich nochmal.",
+          error: "booking_error",
+          details: err.details || null,
+        });
+      }
     }
 
 // Knowledge-first (NO hallucinations): lists/recommendations come from knowledge/verified.json
@@ -2003,180 +2374,15 @@ app.delete("/api/smoobu/bookings/:id", async (req, res) => {
 app.post("/api/concierge", conciergeChatHandler);
 // Alias from the API design doc
 app.post("/concierge/chat", conciergeChatHandler);
-
-
-// ---------------- v57 Stripe endpoints ----------------
-app.get('/api/debug/db', async (req, res) => {
-  try {
-    if (!db) return res.json({ ok: true, kind: 'memory', databaseUrlSet: false, ready: false });
-    const r = await db.query('SELECT 1 as ok');
-    return res.json({ ok: true, kind: 'postgres', databaseUrlSet: true, ready: r.rowCount === 1 });
-  } catch (e) {
-    return res.status(500).json({ ok: false, kind: 'postgres', databaseUrlSet: Boolean(DATABASE_URL), ready: false, error: e?.message || String(e) });
-  }
-});
-
-app.get('/api/payment/stripe/config', (req, res) => {
-  return res.json({
-    ok: true,
-    enabled: Boolean(db && stripe && STRIPE_PUBLISHABLE_KEY && STRIPE_WEBHOOK_SECRET),
-    publishableKey: STRIPE_PUBLISHABLE_KEY || null,
-    currency: STRIPE_CURRENCY,
-  });
-});
-
-app.post('/api/payment/stripe/create-intent', rateLimit, async (req, res) => {
-  try {
-    if (!db || !stripe) return res.status(500).json({ ok: false, error: 'stripe_not_configured' });
-    const body = req.body || {};
-    const offerToken = typeof body.offerToken === 'string' ? body.offerToken.trim() : '';
-    if (!offerToken) return res.status(400).json({ ok: false, error: 'missing_offerToken' });
-
-    let offer;
-    try { offer = verifyOffer(offerToken); }
-    catch (e) { return res.status(400).json({ ok: false, error: 'invalid_offerToken', message: e?.message || String(e) }); }
-
-    const guest = (body.guest && typeof body.guest === 'object') ? body.guest : {};
-    const extras = (body.extras && typeof body.extras === 'object') ? body.extras : {};
-
-    const basePrice = Number(offer.price || 0);
-    const nights = nightsBetweenIso(offer.arrivalDate, offer.departureDate);
-    const dogs = Number(extras.dogs || 0);
-    const dogPricePerNight = Number(extras.dogPricePerNight || 10);
-    const dogExtra = (dogs > 0 && dogPricePerNight > 0 && nights > 0) ? dogs * dogPricePerNight * nights : 0;
-    const total = Math.max(0, basePrice + dogExtra);
-    const amountCents = toCents(total);
-    if (!amountCents) return res.status(400).json({ ok: false, error: 'invalid_amount' });
-
-    const paymentId = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
-
-    const intent = await stripe.paymentIntents.create({
-      amount: amountCents,
-      currency: STRIPE_CURRENCY,
-      automatic_payment_methods: { enabled: true },
-      metadata: {
-        booking_payment_id: paymentId,
-        apartmentId: String(offer.apartmentId || ''),
-        arrivalDate: String(offer.arrivalDate || ''),
-        departureDate: String(offer.departureDate || ''),
-        guests: String(offer.guests || ''),
-      },
-    });
-
-    await db.query(
-      'INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extras_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-      [paymentId, 'intent_created', intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({ offer, offerToken }), JSON.stringify(guest), JSON.stringify(extras)]
-    );
-
-    return res.json({ ok: true, paymentId, paymentIntentId: intent.id, clientSecret: intent.client_secret, amountCents, currency: STRIPE_CURRENCY });
-  } catch (e) {
-    console.error('stripe create-intent error', e);
-    return res.status(500).json({ ok: false, error: 'stripe_error', message: e?.message || String(e) });
-  }
-});
-
-app.get('/api/payment/stripe/status/:paymentId', async (req, res) => {
-  try {
-    if (!db) return res.status(500).json({ ok: false, error: 'db_not_configured' });
-    const id = String(req.params.paymentId || '').trim();
-    const r = await db.query('SELECT id,status,amount_cents,currency,stripe_payment_intent_id,smoobu_reservation_id,last_error,created_at FROM booking_payments WHERE id=$1', [id]);
-    if (!r.rowCount) return res.status(404).json({ ok: false, error: 'not_found' });
-    return res.json({ ok: true, ...r.rows[0] });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: 'status_error', message: e?.message || String(e) });
-  }
-});
-
-app.post('/api/payment/stripe/webhook', async (req, res) => {
-  try {
-    if (!db || !stripe) return res.status(500).send('stripe_not_configured');
-    const sig = req.headers['stripe-signature'];
-    if (!sig || typeof sig !== 'string') return res.status(400).send('missing_signature');
-    if (!STRIPE_WEBHOOK_SECRET) return res.status(500).send('missing_webhook_secret');
-
-    let event;
-    try { event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET); }
-    catch (e) { console.error('stripe signature verify failed', e?.message || e); return res.status(400).send('invalid_signature'); }
-
-    const isNew = await dbUpsertStripeEvent(event.id, event.type);
-    if (!isNew) return res.status(200).send('duplicate_event_ok');
-
-    if (!['payment_intent.succeeded','payment_intent.payment_failed','payment_intent.canceled'].includes(event.type)) {
-      return res.status(200).send('ignored');
-    }
-
-    const pi = event.data?.object;
-    const intentId = String(pi?.id || '');
-    const r0 = await db.query('SELECT * FROM booking_payments WHERE stripe_payment_intent_id=$1', [intentId]);
-    if (!r0.rowCount) return res.status(200).send('unknown_intent_ok');
-    const paymentId = r0.rows[0].id;
-
-    if (event.type !== 'payment_intent.succeeded') {
-      await db.query('UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1', [paymentId, 'payment_failed', JSON.stringify({ type: event.type })]);
-      return res.status(200).send('ok');
-    }
-
-    const client = await db.connect();
-    try {
-      await client.query('BEGIN');
-      const r = await client.query('SELECT * FROM booking_payments WHERE id=$1 FOR UPDATE', [paymentId]);
-      const row = r.rows[0];
-      if (!row) { await client.query('ROLLBACK'); return res.status(200).send('ok'); }
-      if (row.status === 'booked' && row.smoobu_reservation_id) { await client.query('COMMIT'); return res.status(200).send('already_booked_ok'); }
-
-      await client.query('UPDATE booking_payments SET status=$2 WHERE id=$1', [paymentId, 'paid']);
-
-      const wrap = JSON.parse(row.offer_json);
-      const offer = wrap.offer;
-      const guest = JSON.parse(row.guest_json);
-
-      // Build Smoobu reservation payload (minimal; adjust as needed)
-      const reservationPayload = {
-        arrivalDate: offer.arrivalDate,
-        departureDate: offer.departureDate,
-        apartmentId: offer.apartmentId,
-        channelId: Number(process.env.SMOOBU_CHANNEL_ID || '70'),
-        firstName: guest.firstName,
-        lastName: guest.lastName,
-        email: guest.email,
-        phone: guest.phone,
-        address: guest.address,
-        country: guest.country,
-        language: guest.language || 'de',
-        adults: Number(guest.adults || offer.guests || 0),
-        children: Number(guest.children || 0),
-        price: offer.price,
-        notice: String(guest.notice || '').slice(0, 800) + ' | Stripe PI=' + intentId,
-      };
-
-      const result = await smoobuFetch('/api/reservations', { method: 'POST', jsonBody: reservationPayload });
-      const bookingId = result?.id ?? result?.reservationId ?? null;
-      await client.query('UPDATE booking_payments SET status=$2, smoobu_reservation_id=$3 WHERE id=$1', [paymentId, 'booked', bookingId ? String(bookingId) : null]);
-      await client.query('COMMIT');
-      return res.status(200).send('booked_ok');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      await db.query('UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1', [paymentId, 'booking_failed', JSON.stringify({ message: e?.message || String(e) })]);
-      return res.status(200).send('booking_failed');
-    } finally {
-      client.release();
-    }
-  } catch (e) {
-    console.error('webhook_error', e);
-    return res.status(500).send('webhook_error');
-  }
-});
-
 const PORT = process.env.PORT || 3001;
 
 (async () => {
   try {
     const r = await dbInit();
-    if (r.ok) console.log('🗄️ DB ready');
-    else console.log('🗄️ DB not used:', r.reason);
+    if (r.ok) console.log("🗄️ DB ready");
+    else console.log("🗄️ DB not used:", r.reason);
   } catch (e) {
-    console.error('🗄️ DB init error:', e?.message || e);
+    console.error("🗄️ DB init error:", e?.message || e);
   }
 })();
-
 app.listen(PORT, () => console.log(`🤖 Concierge listening on ${PORT}`));
