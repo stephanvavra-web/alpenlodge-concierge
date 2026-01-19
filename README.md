@@ -16,3 +16,6 @@ Fix: Render crash caused by invalid JS object spread syntax.
 
 ## v58.2
 Fix: remove python leftovers in JS (json.dumps -> JSON.stringify).
+
+## v58.3 CHAT
+Adds /api/chat/snapshot and aliases + event-driven refresh.
