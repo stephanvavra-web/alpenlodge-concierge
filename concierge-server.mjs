@@ -30,6 +30,95 @@ const cache = {
   apartments: { ts: 0, ttlMs: 5 * 60 * 1000, value: null },
   availability: new Map(), // key -> {ts, ttlMs, value}
 };
+// ---------------- Chat Data Feed (snapshot cache) ----------------
+const CHAT_SNAPSHOT_DAYS = Number(process.env.CHAT_SNAPSHOT_DAYS || "100");
+const CHAT_SNAPSHOT_MAX_AGE_MS = Number(process.env.CHAT_SNAPSHOT_MAX_AGE_MS || String(6 * 60 * 60 * 1000)); // 6h fallback
+const CHAT_SNAPSHOT_DEBOUNCE_MS = Number(process.env.CHAT_SNAPSHOT_DEBOUNCE_MS || "15000"); // 15s
+const APP_BUILD = process.env.APP_BUILD || null;
+
+let chatSnapshotCache = { ts: 0, value: null, lastError: null, inFlight: null, pending: false, _t: null };
+
+function isoTodayVienna() {
+  const d = new Date();
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Vienna", year:"numeric", month:"2-digit", day:"2-digit" }).format(d); // YYYY-MM-DD
+}
+
+function addDaysIso(iso, days) {
+  const m = String(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  const out = new Date(dt.getTime() + Number(days) * 86400000);
+  const y = out.getUTCFullYear();
+  const mo = String(out.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(out.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
+}
+
+async function fetchChatSnapshot(days = CHAT_SNAPSHOT_DAYS) {
+  const today = isoTodayVienna();
+  const end = addDaysIso(today, Number(days));
+  if (!end) throw new Error("bad_end_date");
+
+  const aptList = await smoobuFetch("/api/apartments", { method: "GET", timeoutMs: 25000 });
+  const apartments = Array.isArray(aptList?.apartments) ? aptList.apartments : [];
+  const ids = apartments.map(a => Number(a.id)).filter(n => Number.isFinite(n));
+
+  const detailsById = {};
+  for (const id of ids) {
+    try {
+      detailsById[String(id)] = await smoobuFetch(`/api/apartments/${id}`, { method: "GET", timeoutMs: 25000 });
+    } catch {
+      detailsById[String(id)] = null;
+    }
+  }
+
+  const rates = await smoobuFetch("/api/rates", {
+    method: "GET",
+    timeoutMs: 45000,
+    query: { start_date: today, end_date: end, "apartments[]": ids },
+  });
+
+  const data = rates?.data || {};
+  const units = ids.map((id) => {
+    const calObj = data[String(id)] || data[id] || {};
+    const calendar = Object.entries(calObj).map(([date, v]) => ({
+      date,
+      available: v?.available ?? null,
+      price: v?.price ?? null,
+      min_length_of_stay: v?.min_length_of_stay ?? null,
+    })).sort((a,b)=> String(a.date).localeCompare(String(b.date)));
+
+    const base = apartments.find(a => Number(a.id) === id) || {};
+    return {
+      apartmentId: id,
+      name: base.name || `Apartment ${id}`,
+      details: detailsById[String(id)],
+      calendar,
+    };
+  });
+
+  return { ok: true, generatedAt: new Date().toISOString(), build: APP_BUILD, days: Number(days), units };
+}
+
+function scheduleChatSnapshotRefresh(reason = "event") {
+  if (chatSnapshotCache._t) clearTimeout(chatSnapshotCache._t);
+  chatSnapshotCache._t = setTimeout(async () => {
+    if (chatSnapshotCache.inFlight) { chatSnapshotCache.pending = true; return; }
+    try {
+      chatSnapshotCache.inFlight = fetchChatSnapshot(CHAT_SNAPSHOT_DAYS);
+      const val = await chatSnapshotCache.inFlight;
+      chatSnapshotCache.value = val;
+      chatSnapshotCache.ts = Date.now();
+      chatSnapshotCache.lastError = null;
+    } catch (e) {
+      chatSnapshotCache.lastError = { reason, message: e?.message || String(e) };
+    } finally {
+      chatSnapshotCache.inFlight = null;
+      if (chatSnapshotCache.pending) { chatSnapshotCache.pending = false; scheduleChatSnapshotRefresh("pending"); }
+    }
+  }, CHAT_SNAPSHOT_DEBOUNCE_MS);
+}
+
 
 // ---------------- Verified knowledge (NO HALLUCINATIONS) ----------------
 // The concierge must ONLY recommend items that exist in this file. If an item isn't here,
@@ -1179,97 +1268,7 @@ function availabilityCacheSet(key, value, ttlMs = 30 * 1000) {
   cache.availability.set(key, { ts: now(), ttlMs, value });
 }
 
-async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 15000 }
-
-// ---------------- Chat Data Feed (snapshot cache) ----------------
-const CHAT_SNAPSHOT_DAYS = Number(process.env.CHAT_SNAPSHOT_DAYS || "100");
-const CHAT_SNAPSHOT_MAX_AGE_MS = Number(process.env.CHAT_SNAPSHOT_MAX_AGE_MS || String(6 * 60 * 60 * 1000)); // 6h fallback
-const CHAT_SNAPSHOT_DEBOUNCE_MS = Number(process.env.CHAT_SNAPSHOT_DEBOUNCE_MS || "15000"); // 15s
-const APP_BUILD = process.env.APP_BUILD || null;
-
-let chatSnapshotCache = { ts: 0, value: null, lastError: null, inFlight: null, pending: false, _t: null };
-
-function isoTodayVienna() {
-  const d = new Date();
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Vienna", year:"numeric", month:"2-digit", day:"2-digit" }).format(d); // YYYY-MM-DD
-}
-
-function addDaysIso(iso, days) {
-  const m = String(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  const out = new Date(dt.getTime() + Number(days) * 86400000);
-  const y = out.getUTCFullYear();
-  const mo = String(out.getUTCMonth() + 1).padStart(2, "0");
-  const da = String(out.getUTCDate()).padStart(2, "0");
-  return `${y}-${mo}-${da}`;
-}
-
-async function fetchChatSnapshot(days = CHAT_SNAPSHOT_DAYS) {
-  const today = isoTodayVienna();
-  const end = addDaysIso(today, Number(days));
-  if (!end) throw new Error("bad_end_date");
-
-  const aptList = await smoobuFetch("/api/apartments", { method: "GET", timeoutMs: 25000 });
-  const apartments = Array.isArray(aptList?.apartments) ? aptList.apartments : [];
-  const ids = apartments.map(a => Number(a.id)).filter(n => Number.isFinite(n));
-
-  const detailsById = {};
-  for (const id of ids) {
-    try {
-      detailsById[String(id)] = await smoobuFetch(`/api/apartments/${id}`, { method: "GET", timeoutMs: 25000 });
-    } catch {
-      detailsById[String(id)] = null;
-    }
-  }
-
-  const rates = await smoobuFetch("/api/rates", {
-    method: "GET",
-    timeoutMs: 45000,
-    query: { start_date: today, end_date: end, "apartments[]": ids },
-  });
-
-  const data = rates?.data || {};
-  const units = ids.map((id) => {
-    const calObj = data[String(id)] || data[id] || {};
-    const calendar = Object.entries(calObj).map(([date, v]) => ({
-      date,
-      available: v?.available ?? null,
-      price: v?.price ?? null,
-      min_length_of_stay: v?.min_length_of_stay ?? null,
-    })).sort((a,b)=> String(a.date).localeCompare(String(b.date)));
-
-    const base = apartments.find(a => Number(a.id) === id) || {};
-    return {
-      apartmentId: id,
-      name: base.name || `Apartment ${id}`,
-      details: detailsById[String(id)],
-      calendar,
-    };
-  });
-
-  return { ok: true, generatedAt: new Date().toISOString(), build: APP_BUILD, days: Number(days), units };
-}
-
-function scheduleChatSnapshotRefresh(reason = "event") {
-  if (chatSnapshotCache._t) clearTimeout(chatSnapshotCache._t);
-  chatSnapshotCache._t = setTimeout(async () => {
-    if (chatSnapshotCache.inFlight) { chatSnapshotCache.pending = true; return; }
-    try {
-      chatSnapshotCache.inFlight = fetchChatSnapshot(CHAT_SNAPSHOT_DAYS);
-      const val = await chatSnapshotCache.inFlight;
-      chatSnapshotCache.value = val;
-      chatSnapshotCache.ts = Date.now();
-      chatSnapshotCache.lastError = null;
-    } catch (e) {
-      chatSnapshotCache.lastError = { reason, message: e?.message || String(e) };
-    } finally {
-      chatSnapshotCache.inFlight = null;
-      if (chatSnapshotCache.pending) { chatSnapshotCache.pending = false; scheduleChatSnapshotRefresh("pending"); }
-    }
-  }, CHAT_SNAPSHOT_DEBOUNCE_MS);
-}
- = {}) {
+async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 15000 } = {}) {
   if (!SMOOBU_API_KEY) {
     const e = new Error("SMOOBU_API_KEY missing");
     e.status = 500;
@@ -1538,7 +1537,7 @@ app.get("/api/chat/snapshot", async (req, res) => {
   }
 });
 
-// Aliases for older chat frontends
+// Aliases for chat frontends
 app.get("/chat/snapshot.json", (req, res) => {
   const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   res.redirect(302, "/api/chat/snapshot" + q);
