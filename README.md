@@ -19,3 +19,6 @@ Fix: remove python leftovers in JS (json.dumps -> JSON.stringify).
 
 ## v58.3 CHAT
 Adds /api/chat/snapshot and aliases + event-driven refresh.
+
+## v58.3.1
+Fix: smoobuFetch() parameter default restored (Render deploy crash).
