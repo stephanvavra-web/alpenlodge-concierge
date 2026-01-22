@@ -1,131 +1,5266 @@
 {
   "meta": {
-    "generated_at": "2026-01-22T12:19:27.686520+00:00",
+    "version": "2026-01-12-50km-scan-config-block100-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
     "rules": {
-      "no_fiction": true,
-      "no_recommendations": true,
-      "source_only": true,
-      "pricing_availability_source": "https://chat.alpenlodge.info",
-      "pricing_availability_calculate": true
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(100): keywords[90..99] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Polizei",
+    "Post",
+    "Pferdekutsche",
+    "Pizzeria",
+    "Pumptrack",
+    "Qualitätssiegel",
+    "QR Code",
+    "Quartier",
+    "Quellwasser",
+    "Rodelbahn"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
     }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block110-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(110): keywords[100..109] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Restaurant",
+    "Reitstall",
+    "RegioBus",
+    "Rundwanderweg",
+    "Rettung",
+    "Skigebiet",
+    "Skipass",
+    "Skischule",
+    "Skiverleih",
+    "Schneelage"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block120-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(120): keywords[110..119] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Sauna",
+    "Supermarkt",
+    "Thiersee",
+    "Taxi",
+    "Tourismusverband",
+    "Therme",
+    "Tischreservierung",
+    "Trail Map",
+    "Unterkunft",
+    "Unfallarzt"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block130-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(130): keywords[120..129] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Urlaub mit Hund",
+    "Umweltzone",
+    "Uferweg",
+    "Veranstaltung",
+    "Verleih",
+    "Verkehr",
+    "Versicherung",
+    "Vogelpark",
+    "Vulkanland (Testkeyword)",
+    "Wandern"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block140-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(140): keywords[130..139] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Winterwandern",
+    "Wellness",
+    "Wetter",
+    "Webcams",
+    "Wochenmarkt",
+    "Wasserfall",
+    "X-Trail",
+    "X-Alps (Event)",
+    "X-Mas Markt (Weihnachtsmarkt)",
+    "Yoga"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block150-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(150): keywords[140..149] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Youth Camp",
+    "Ybbstal (Testkeyword)",
+    "Zahnarzt",
+    "Zugverbindung",
+    "Zoo",
+    "Zustiegspunkt",
+    "Zirmweg",
+    "Zimmerpreise",
+    "Kinderspielzimmer",
+    "Spielplatz"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block160-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(160): keywords[150..159] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Brötchenservice",
+    "Snackautomat",
+    "Solarium",
+    "Skitour",
+    "Schneeschuh",
+    "Eisklettern",
+    "Routenplaner",
+    "Parken kostenlos",
+    "Parken gebührenpflichtig",
+    "Wochenprogramm"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block170-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(170): keywords[160..169] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Ferienprogramm",
+    "Kinderbetreuung",
+    "Babysitter",
+    "Schlechtwetterprogramm",
+    "Ausrüstung mieten",
+    "Skibus",
+    "Nightliner",
+    "Kino",
+    "Bowling",
+    "Escape Room"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block180-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(180): keywords[170..179] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Thermenwelt",
+    "Schwimmbad",
+    "Badewelt",
+    "Bikepark",
+    "MTB Trail",
+    "Kletterpark",
+    "Schwimmschule",
+    "Angelkarte",
+    "Bootsverleih",
+    "SUP Verleih"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block20-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(20): keywords[11..20] – Batch-Konfig für team-internes Abarbeiten."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Bahnhof",
+    "Bikeverleih",
+    "Café",
+    "Camping",
+    "Carsharing",
+    "Chillarea",
+    "Coworking",
+    "Curling",
+    "Datenschutz",
+    "Drogerie"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block30-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(30): keywords[21..30] – Batch-Konfig für team-internes Abarbeiten."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Dorfzentrum",
+    "Disco",
+    "Dienstleistungen",
+    "Direktbus",
+    "E-Ladestation",
+    "E-Bike",
+    "Einkauf",
+    "Erlebnisbad",
+    "Eislaufen",
+    "Events"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block40-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(40): keywords[31..40] – Batch-Konfig für team-internes Abarbeiten."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Familienprogramm",
+    "Fahrradverleih",
+    "Fitnessstudio",
+    "Feuerwehr",
+    "Fischteich",
+    "Frühstück",
+    "Gästekarte",
+    "Gondel",
+    "Google Maps",
+    "Gasthof"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block50-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(50): keywords[40..49] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Gletscher",
+    "Gourmet",
+    "Hallenbad",
+    "Hausarzt",
+    "Hunde erlaubt",
+    "Hütten",
+    "Heimatmuseum",
+    "Hochseilgarten",
+    "Indoor Spielplatz",
+    "Infrarotkabine"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block60-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(60): keywords[50..59] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Infozentrum",
+    "Italienisches Restaurant",
+    "Imbiss",
+    "Internet Störung",
+    "Jugendprogramm",
+    "Jausenstation",
+    "Jahreskarte",
+    "Jodelkurs",
+    "Joggingstrecke",
+    "Kufsteinerland"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block70-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(70): keywords[60..69] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Kufstein",
+    "Kinderarzt",
+    "Kindergarten",
+    "Kletterhalle",
+    "Klettersteig",
+    "Kirche",
+    "Landl",
+    "Langlauf",
+    "Lebensmittel",
+    "Loipe"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block80-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(80): keywords[70..79] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Liftkarten",
+    "Lawinenlage",
+    "Museum",
+    "Massage",
+    "Mountainbike",
+    "Minigolf",
+    "Maut",
+    "Metzgerei",
+    "Naturbadesee",
+    "Notdienst"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-block90-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage).",
+      "BLOCK(90): keywords[80..89] – Batch-Konfig."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Notruf",
+    "Nachtrodeln",
+    "Nahversorgung",
+    "Nordic Walking",
+    "Öffnungszeiten",
+    "Ortsplan",
+    "Outdoor Spielplatz",
+    "OGV Tourismus",
+    "Obstladen",
+    "Parkplatz"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-scan-config-v1",
+    "generated_at": "2026-01-12T20:49:16+01:00",
+    "timezone": "Europe/Vienna",
+    "rules": {
+      "radius_km": 50,
+      "min_results_per_term_target": 50,
+      "max_results_per_term_cap": 500,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“"
+    },
+    "notes": [
+      "Diese Datei ist eine Scan-Konfiguration + Keyword-Liste.",
+      "Der beiliegende Scanner (overpass/osm) erzeugt verifizierbare items[] mit OSM-URLs (http/https) und Koordinaten (WGS84).",
+      "Der Scan kann je Keyword keine 50 Treffer garantieren (abhängig von OSM-Datenlage)."
+    ]
+  },
+  "center": {
+    "name": "ALPENLODGE (Landl 37, Thiersee)",
+    "lat": 47.5884,
+    "lon": 12.0336
+  },
+  "keywords": [
+    "Alpenlodge",
+    "Anreise",
+    "Abreise",
+    "Apotheke",
+    "Arzt",
+    "Ausflug",
+    "Bäckerei",
+    "Badesee",
+    "Bergbahn",
+    "Busfahrplan",
+    "Bahnhof",
+    "Bikeverleih",
+    "Café",
+    "Camping",
+    "Carsharing",
+    "Chillarea",
+    "Coworking",
+    "Curling",
+    "Datenschutz",
+    "Drogerie",
+    "Dorfzentrum",
+    "Disco",
+    "Dienstleistungen",
+    "Direktbus",
+    "E-Ladestation",
+    "E-Bike",
+    "Einkauf",
+    "Erlebnisbad",
+    "Eislaufen",
+    "Events",
+    "Familienprogramm",
+    "Fahrradverleih",
+    "Fitnessstudio",
+    "Feuerwehr",
+    "Fischteich",
+    "Frühstück",
+    "Gästekarte",
+    "Gondel",
+    "Google Maps",
+    "Gasthof",
+    "Gletscher",
+    "Gourmet",
+    "Hallenbad",
+    "Hausarzt",
+    "Hunde erlaubt",
+    "Hütten",
+    "Heimatmuseum",
+    "Hochseilgarten",
+    "Indoor Spielplatz",
+    "Infrarotkabine",
+    "Infozentrum",
+    "Italienisches Restaurant",
+    "Imbiss",
+    "Internet Störung",
+    "Jugendprogramm",
+    "Jausenstation",
+    "Jahreskarte",
+    "Jodelkurs",
+    "Joggingstrecke",
+    "Kufsteinerland",
+    "Kufstein",
+    "Kinderarzt",
+    "Kindergarten",
+    "Kletterhalle",
+    "Klettersteig",
+    "Kirche",
+    "Landl",
+    "Langlauf",
+    "Lebensmittel",
+    "Loipe",
+    "Liftkarten",
+    "Lawinenlage",
+    "Museum",
+    "Massage",
+    "Mountainbike",
+    "Minigolf",
+    "Maut",
+    "Metzgerei",
+    "Naturbadesee",
+    "Notdienst",
+    "Notruf",
+    "Nachtrodeln",
+    "Nahversorgung",
+    "Nordic Walking",
+    "Öffnungszeiten",
+    "Ortsplan",
+    "Outdoor Spielplatz",
+    "OGV Tourismus",
+    "Obstladen",
+    "Parkplatz",
+    "Polizei",
+    "Post",
+    "Pferdekutsche",
+    "Pizzeria",
+    "Pumptrack",
+    "Qualitätssiegel",
+    "QR Code",
+    "Quartier",
+    "Quellwasser",
+    "Rodelbahn",
+    "Restaurant",
+    "Reitstall",
+    "RegioBus",
+    "Rundwanderweg",
+    "Rettung",
+    "Skigebiet",
+    "Skipass",
+    "Skischule",
+    "Skiverleih",
+    "Schneelage",
+    "Sauna",
+    "Supermarkt",
+    "Thiersee",
+    "Taxi",
+    "Tourismusverband",
+    "Therme",
+    "Tischreservierung",
+    "Trail Map",
+    "Unterkunft",
+    "Unfallarzt",
+    "Urlaub mit Hund",
+    "Umweltzone",
+    "Uferweg",
+    "Veranstaltung",
+    "Verleih",
+    "Verkehr",
+    "Versicherung",
+    "Vogelpark",
+    "Vulkanland (Testkeyword)",
+    "Wandern",
+    "Winterwandern",
+    "Wellness",
+    "Wetter",
+    "Webcams",
+    "Wochenmarkt",
+    "Wasserfall",
+    "X-Trail",
+    "X-Alps (Event)",
+    "X-Mas Markt (Weihnachtsmarkt)",
+    "Yoga",
+    "Youth Camp",
+    "Ybbstal (Testkeyword)",
+    "Zahnarzt",
+    "Zugverbindung",
+    "Zoo",
+    "Zustiegspunkt",
+    "Zirmweg",
+    "Zimmerpreise",
+    "Kinderspielzimmer",
+    "Spielplatz",
+    "Brötchenservice",
+    "Snackautomat",
+    "Solarium",
+    "Skitour",
+    "Schneeschuh",
+    "Eisklettern",
+    "Routenplaner",
+    "Parken kostenlos",
+    "Parken gebührenpflichtig",
+    "Wochenprogramm",
+    "Ferienprogramm",
+    "Kinderbetreuung",
+    "Babysitter",
+    "Schlechtwetterprogramm",
+    "Ausrüstung mieten",
+    "Skibus",
+    "Nightliner",
+    "Kino",
+    "Bowling",
+    "Escape Room",
+    "Thermenwelt",
+    "Schwimmbad",
+    "Badewelt",
+    "Bikepark",
+    "MTB Trail",
+    "Kletterpark",
+    "Schwimmschule",
+    "Angelkarte",
+    "Bootsverleih",
+    "SUP Verleih",
+    "Badestelle",
+    "Hundewiese",
+    "Tierarzt",
+    "Tierbedarf",
+    "Ladekabel Typ2",
+    "Bankomat",
+    "Geldautomat",
+    "Wechselstube"
+  ],
+  "osm_categories": [
+    {
+      "type": "amenity",
+      "values": [
+        "restaurant",
+        "cafe",
+        "bar",
+        "fast_food",
+        "pub"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "pharmacy",
+        "doctors",
+        "hospital",
+        "dentist",
+        "clinic",
+        "veterinary"
+      ]
+    },
+    {
+      "type": "amenity",
+      "values": [
+        "supermarket",
+        "bakery",
+        "butcher",
+        "marketplace",
+        "post_office",
+        "bank",
+        "atm"
+      ]
+    },
+    {
+      "type": "tourism",
+      "values": [
+        "attraction",
+        "museum",
+        "information",
+        "viewpoint",
+        "zoo",
+        "theme_park"
+      ]
+    },
+    {
+      "type": "leisure",
+      "values": [
+        "playground",
+        "sports_centre",
+        "fitness_centre",
+        "swimming_pool",
+        "spa",
+        "sauna",
+        "water_park",
+        "golf_course",
+        "miniature_golf"
+      ]
+    },
+    {
+      "type": "natural",
+      "values": [
+        "water",
+        "peak",
+        "wood",
+        "spring",
+        "cave_entrance"
+      ]
+    },
+    {
+      "type": "man_made",
+      "values": [
+        "pier",
+        "tower",
+        "lighthouse",
+        "bridge"
+      ]
+    },
+    {
+      "type": "sport",
+      "values": [
+        "skiing",
+        "climbing",
+        "swimming",
+        "tennis",
+        "soccer",
+        "ice_skating"
+      ]
+    },
+    {
+      "type": "route",
+      "values": [
+        "hiking",
+        "bicycle",
+        "mtb",
+        "ski"
+      ]
+    },
+    {
+      "type": "public_transport",
+      "values": [
+        "station",
+        "stop_position",
+        "platform"
+      ]
+    },
+    {
+      "type": "shop",
+      "values": [
+        "bicycle",
+        "sports",
+        "outdoor",
+        "convenience",
+        "department_store"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-12-50km-v1",
+    "language": "de",
+    "generated_at": "2026-01-12T00:00:00+01:00",
+    "maintainer": "<NAME/TEAM>",
+    "rules": {
+      "default_radius_km": 50,
+      "never_invent": true,
+      "links_only_http_https": true,
+      "internal_source_prefix": "INTERNAL:",
+      "no_old_brand_name": true,
+      "when_uncertain": "Nicht behaupten. Sage: „Dazu liegt mir keine verifizierte Quelle vor.“ und biete ggf. offizielle Verzeichnisse aus sources{} an."
+    },
+    "notes": [
+      "Diese Datei ist eine Vorlage. Bitte items[] mit verifizierten Einträgen füllen.",
+      "Jeder Eintrag in items[] benötigt lat/lon (WGS84), url (http/https) und last_verified_at (YYYY-MM-DD).",
+      "INTERNAL:* ist keine URL und darf niemals als Link ausgegeben werden."
+    ]
   },
   "alpenlodge": {
+    "name": "ALPENLODGE",
+    "timezone": "Europe/Vienna",
     "center": {
-      "lat": 47.586,
-      "lon": 12.107
+      "lat": null,
+      "lon": null
     },
     "amenities": [
       {
-        "name": "Wir bieten familienfreundliche Ferienwohnungen für bis zu 7 Personen mitten im Thierseetal"
-      },
-      {
-        "name": "Unser Apartmenthaus ist bestens für Familien mit Kindern, Paare, Alleinreisende oder Gruppen geeignet"
-      },
-      {
-        "name": "Im Erdgeschoß finden die Kinder einen großen Indoorspielplatz mit sehr vielen Spielmöglichkeiten"
-      },
-      {
-        "name": "Vor unserem Haus können sich die Kids so richtig auf dem tollen Außenspielplatz austoben"
-      },
-      {
-        "name": "Bei uns sind Hunde willkommen - wir freuen uns auf euren vierbeinigen Liebling"
-      },
-      {
-        "name": "Wir bieten eine Ladestation für E-Autos"
-      },
-      {
-        "name": "Der geräumige Saal ist perfekt für gemütliches Zusammensitzen, oder Veranstaltungen geeignet"
-      },
-      {
-        "name": "Unser Fitnessraum bietet verschiedene Sportmöglichkeiten, ein Solarium und eine Infrarotsaune"
-      },
-      {
-        "name": "Badehose einpacken & los: wir liegen nur wenige Meter vom schönen Naturbadesee entfernt"
-      },
-      {
-        "name": "Gratis KufsteinerlandCard : Kostenlose Erlebnisse, attraktive Ermäßigungen und Spezialangebote"
-      },
-      {
-        "name": "Ferienwohnung 17",
-        "summary": "2. Obergeschoss — bis 6 Personen — 2 Schlafzimmer mit je einem Doppelbett, 1 Schlafzimmer mit zwei Einzelbetten; Badezimmer mit Doppelwaschbecken, Badewanne, Dusche, Wc, Haartrockner, Waschmaschine und eigener Infrarotsauna; Zweites Badezimmer mit Badewanne, Waschbecken, Wc und Haartrockner",
-        "url": "https://tour.ogulo.com/iwET"
-      },
-      {
-        "name": "Ferienwohnung 16",
-        "summary": "2. Obergeschoss — bis 6 Personen — 2 Schlafzimmer mit je einem Doppelbett und einem Einzelbett; Badezimmer mit Dusche, Wc, Badewanne, eigener infrarotsauna, Waschmaschine und Haartrockner; Wohnbereich mit Ledersofa und TV"
-      },
-      {
-        "name": "Ferienwohnung 19",
-        "summary": "2. Obergeschoss — bis 2 Personen — Großzügiger Schlafbereich mit Doppelbett, kleinem Sofa und Kückenzeile; Badezimmer mit Dusche und WC; Haartrockner"
-      },
-      {
-        "name": "Ferienwohnung 18",
-        "summary": "2. Obergeschoss — bis 1 Personen — Schlafzimmer mit Einzelbett; Badezimmer mit separater Dusche und WC; Haartrockner",
-        "url": "https://my.matterport.com/show/?m=YANfZyRHwo7"
-      },
-      {
-        "name": "Ferienwohnung 9",
-        "summary": "1. Obergeschoss — bis 1 Personen — Schlafzimmer mit Einzelbett; Badezimmer mit separater Dusche und WC; Haartrockner"
-      },
-      {
-        "name": "Ferienwohnung 8",
-        "summary": "1. Obergeschoss — bis 6 Personen — 3 Schlafzimmer: 3 x mit Doppelbett; Erstes Badezimmer mit Eckbadewanne, Dusche, Haartrockner, zwei Waschbecken und privater Infrarotsauna; Zweites Badetimmer mit Dusche, Waschbecken und separatem WC",
-        "url": "https://tour.ogulo.com/0ImF"
-      },
-      {
-        "name": "Ferienwohnung 7",
-        "summary": "1. Obergeschoss — bis 4 Personen — 2 Schlafzimmer: 2 x mit Doppelbett; Badezimmer mit Dusche/WC, Haartrockner; Wohnbereich mit Ledersofa und TV",
-        "url": "https://my.matterport.com/show/?m=Q9ajHwDQjua"
-      },
-      {
-        "name": "Ferienwohnung 6",
-        "summary": "1. Obergeschoss — bis 2 Personen — Doppelbett; Badezimmer mit Dusche/WC, Haartrockner; Ledersofa und TV",
-        "url": "https://my.matterport.com/show/?m=4XtuXy6t8nQ"
-      },
-      {
-        "name": "Ferienwohnung 14",
-        "summary": "2. Obergeschoss — bis 3 Personen — Schlafzimmer mit Doppelbett und Einzelbett; Badezimmer mit Dusche/WC, Haartrockner; Wohnzimmer mit Ledersofa, TV und Essecke",
-        "url": "https://my.matterport.com/show/?m=Z517KdAGER6"
-      },
-      {
-        "name": "Ferienwohnung 5",
-        "summary": "1. Obergeschoss — Schlafzimmer mit Doppelbett; Neu renoviertes Badezimmer mit Dusche/WC, Haartrockner; Eigene Infrarotsauna",
-        "url": "https://my.matterport.com/show/?m=EBbH3tc37HX"
-      },
-      {
-        "name": "Ferienwohnung 13",
-        "summary": "2. Obergeschoss — bis 3 Personen — Schlafzimmer mit Doppelbett und Einzelbett; Badezimmer mit Dusche/WC, Haartrockner; Wohnzimmer mit Ledersofa, TV und Essecke",
-        "url": "https://my.matterport.com/show/?m=KJUfusmxsPq"
-      },
-      {
-        "name": "Ferienwohnung 4",
-        "summary": "1. Obergeschoss — bis 2 Personen — Schlafzimmer mit Doppelbett und Einzelbett; Badezimmer mit Dusche/WC, Haartrockner; Wohnzimmer mit Ledersofa, TV und Essecke",
-        "url": "https://my.matterport.com/show/?m=W3PsTnP4Sug"
-      },
-      {
-        "name": "Ferienwohnung 12",
-        "summary": "2. Obergeschoss — bis 4 Personen — 2 Schlafzimmer mit Doppelbett; Bad mit Badewanne und Dusche, Haartrockner; 2 separate WCs"
-      },
-      {
-        "name": "Ferienwohnung 11",
-        "summary": "2. Obergeschoss — bis 4 Personen — 2 Schlafzimmer mit Doppelbett; Bad mit Badewanne und Dusche, Haartrockner; Zusätzliche Dusche"
-      },
-      {
-        "name": "Ferienwohnung 2",
-        "summary": "1. Obergeschoss — bis 4 Personen — 2 Schlafzimmer mit Doppelbett; Bad mit Badewanne und Dusche, Haartrockner; Zusätzliche Dusche",
-        "url": "https://my.matterport.com/show/?m=E9hoMKNca4L"
+        "type": "amenity",
+        "name": "<AUSSTATTUNG-ITEM>",
+        "details": "<KURZE-DETAILS>",
+        "source": "INTERNAL:owner-confirmed",
+        "last_verified_at": "YYYY-MM-DD"
       }
     ]
   },
-  "items": [],
   "sources": {
-    "preise_verfuegbarkeit": {
-      "label": "Preise & Verfügbarkeit",
-      "url": "https://chat.alpenlodge.info"
+    "tourism_official": {
+      "label": "<OFFIZIELLER TOURISMUSVERBAND / VERZEICHNIS>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "general"
     },
-    "kufsteinerlandcard": {
-      "label": "KufsteinerlandCard",
-      "url": "https://www.kufstein.com/de/service-info/card.html"
+    "restaurants": {
+      "label": "<OFFIZIELLES GASTRO-VERZEICHNIS>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "restaurants"
+    },
+    "ski": {
+      "label": "<OFFIZIELLE SKI-INFO (BETREIBER/VERZEICHNIS)>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "ski"
+    },
+    "events": {
+      "label": "<OFFIZIELLER EVENT-KALENDER>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "events"
+    },
+    "medical": {
+      "label": "<OFFIZIELLES GESUNDHEITS-VERZEICHNIS>",
+      "url": "https://<OFFIZIELLE-QUELLE-URL>",
+      "scope": "medical"
+    }
+  },
+  "items": []
+}
+{
+  "apartments": [
+    {
+      "apartment_id": "17",
+      "floor": "2. Obergeschoss",
+      "max_persons": 6,
+      "tour_url": "https://tour.ogulo.com/iwET",
+      "features_list": [
+        "2 Schlafzimmer mit je einem Doppelbett, 1 Schlafzimmer mit zwei Einzelbetten",
+        "Badezimmer mit Doppelwaschbecken, Badewanne, Dusche, Wc, Haartrockner, Waschmaschine und eigener Infrarotsauna",
+        "Zweites Badezimmer mit Badewanne, Waschbecken, Wc und Haartrockner",
+        "Wohnbereich mit Ledersofa, TV und Essecke",
+        "Wohnküche ausgestattet mit Backofen, E-Herd, Kühl-Gefrier-Kombination, Spülmaschine, Wasserkocher, Toaster, Nespressomaschine",
+        "Separater Flur mit Garderobe",
+        "Überdachter, großer Ost-Balkon, vom Schlafzimmer und Küche-/Wohnbereich aus zugänglich",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "16",
+      "floor": "2. Obergeschoss",
+      "max_persons": 6,
+      "tour_url": null,
+      "features_list": [
+        "2 Schlafzimmer mit je einem Doppelbett und einem Einzelbett",
+        "Badezimmer mit Dusche, Wc, Badewanne, eigener infrarotsauna, Waschmaschine und Haartrockner",
+        "Wohnbereich mit Ledersofa und TV",
+        "Großer Ess-Wohnraum mit offener Küche und Esstisch",
+        "Küche ausgestattet mit Backofen, E-Herd, Spülmaschine, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster, Nespressomaschine",
+        "Separater Flur mit Garderobe",
+        "Überdachter Balkon, von Wohn- und Essbereich aus begehbar",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "19",
+      "floor": "2. Obergeschoss",
+      "max_persons": 2,
+      "tour_url": null,
+      "features_list": [
+        "Großzügiger Schlafbereich mit Doppelbett, kleinem Sofa und Kückenzeile",
+        "Badezimmer mit Dusche und WC",
+        "Haartrockner",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "18",
+      "floor": "2. Obergeschoss",
+      "max_persons": 1,
+      "tour_url": "https://my.matterport.com/show/?m=YANfZyRHwo7",
+      "features_list": [
+        "Schlafzimmer mit Einzelbett",
+        "Badezimmer mit separater Dusche und WC",
+        "Haartrockner",
+        "Singleküche mit E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster, Nespressomaschine",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "9",
+      "floor": "1. Obergeschoss",
+      "max_persons": 1,
+      "tour_url": null,
+      "features_list": [
+        "Schlafzimmer mit Einzelbett",
+        "Badezimmer mit separater Dusche und WC",
+        "Haartrockner",
+        "Singleküche mit E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster, Nespressomaschine",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "8",
+      "floor": "1. Obergeschoss",
+      "max_persons": 6,
+      "tour_url": "https://tour.ogulo.com/0ImF",
+      "features_list": [
+        "3 Schlafzimmer: 3 x mit Doppelbett",
+        "Erstes Badezimmer mit Eckbadewanne, Dusche, Haartrockner, zwei Waschbecken und privater Infrarotsauna",
+        "Zweites Badetimmer mit Dusche, Waschbecken und separatem WC",
+        "Wohnzimmer mit Ledersofa, TV und Elektroofen",
+        "Moderne Küche E-Herd, Kühlschrank mit Gefrierfach, Ofen, Wasserkocher, Toaster und Nespressokapselmaschine",
+        "Großzügiger Essbereich",
+        "Große Dachterrasse in Richtung Osten, von der Küche aus begehbar",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "7",
+      "floor": "1. Obergeschoss",
+      "max_persons": 4,
+      "tour_url": "https://my.matterport.com/show/?m=Q9ajHwDQjua",
+      "features_list": [
+        "2 Schlafzimmer: 2 x mit Doppelbett",
+        "Badezimmer mit Dusche/WC, Haartrockner",
+        "Wohnbereich mit Ledersofa und TV",
+        "Küche mit E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster, Nespressomaschine",
+        "Großzügiger Essbereich",
+        "Separater Flur mit Garderobe",
+        "Überdachter Balkon nach Osten, von Wohn- und Essbereich aus begehbar",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "6",
+      "floor": "1. Obergeschoss",
+      "max_persons": 2,
+      "tour_url": "https://my.matterport.com/show/?m=4XtuXy6t8nQ",
+      "features_list": [
+        "Doppelbett",
+        "Badezimmer mit Dusche/WC, Haartrockner",
+        "Ledersofa und TV",
+        "Offene Wohnküche",
+        "Küche bestens ausgestattet mit E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster,",
+        "Nespressomaschine,",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "14",
+      "floor": "2. Obergeschoss",
+      "max_persons": 3,
+      "tour_url": "https://my.matterport.com/show/?m=Z517KdAGER6",
+      "features_list": [
+        "Schlafzimmer mit Doppelbett und Einzelbett",
+        "Badezimmer mit Dusche/WC, Haartrockner",
+        "Wohnzimmer mit Ledersofa, TV und Essecke",
+        "Separate Küche mit Spülmaschine, Backofen, E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster, Nespressomaschine",
+        "Garderobe",
+        "Überdachter Balkon nach Süden, Zugang von beiden Zimmern möglich",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "5",
+      "floor": "1. Obergeschoss",
+      "max_persons": null,
+      "tour_url": "https://my.matterport.com/show/?m=EBbH3tc37HX",
+      "features_list": [
+        "Schlafzimmer mit Doppelbett",
+        "Neu renoviertes Badezimmer mit Dusche/WC, Haartrockner",
+        "Eigene Infrarotsauna",
+        "Wohnzimmer mit Ledersofa, TV, gemütlichem Elektrokamin und Essecke",
+        "Separate Küche mit Spülmaschine, Backofen, E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster, Nespressomaschine",
+        "Garderobe",
+        "Überdachter Balkon nach Süden, Zugang von beiden Zimmern möglich",
+        "Grundausstattung an Reinigungs- und Küchenutensilien"
+      ]
+    },
+    {
+      "apartment_id": "13",
+      "floor": "2. Obergeschoss",
+      "max_persons": 3,
+      "tour_url": "https://my.matterport.com/show/?m=KJUfusmxsPq",
+      "features_list": [
+        "Schlafzimmer mit Doppelbett und Einzelbett",
+        "Badezimmer mit Dusche/WC, Haartrockner",
+        "Wohnzimmer mit Ledersofa, TV und Essecke",
+        "Separate Küche mit Spülmaschine, Backofen, E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster, Nespressomaschine",
+        "Garderobe",
+        "Überdachter Balkon nach Süden, Zugang von beiden Zimmern möglich",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "4",
+      "floor": "1. Obergeschoss",
+      "max_persons": 2,
+      "tour_url": "https://my.matterport.com/show/?m=W3PsTnP4Sug",
+      "features_list": [
+        "Schlafzimmer mit Doppelbett und Einzelbett",
+        "Badezimmer mit Dusche/WC, Haartrockner",
+        "Wohnzimmer mit Ledersofa, TV und Essecke",
+        "Separate Küche mit Spülmaschine, Backofen, E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Toaster, Nespressomaschine",
+        "Garderobe",
+        "Überdachter Balkon nach Süden, Zugang von beiden Zimmern möglich",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "12",
+      "floor": "2. Obergeschoss",
+      "max_persons": 4,
+      "tour_url": null,
+      "features_list": [
+        "2 Schlafzimmer mit Doppelbett",
+        "Bad mit Badewanne und Dusche, Haartrockner",
+        "2 separate WCs",
+        "Wohnzimmer mit Ledersofa und TV",
+        "Küche mit Esstisch, Backofen, E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Spülmaschine, Toaster, Nespressomaschine",
+        "Überdachter Balkon nach Westen, von Wohn- und Schlafzimmern zugänglich",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "11",
+      "floor": "2. Obergeschoss",
+      "max_persons": 4,
+      "tour_url": null,
+      "features_list": [
+        "2 Schlafzimmer mit Doppelbett",
+        "Bad mit Badewanne und Dusche, Haartrockner",
+        "Zusätzliche Dusche",
+        "2 separate WCs",
+        "Wohnzimmer mit Ledercouch und TV",
+        "Küche mit Esstisch, Spülmaschine, Backofen, E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Nespressomaschine, Toaster",
+        "Überdachter Balkon nach Westen, zugänglich von Wohn- und Schlafzimmer",
+        "Grundausstattung an Reinigungsutensilien",
+        "2 Schlafzimmer mit Doppelbett",
+        "Bad mit Badewanne und Dusche, Haartrockner",
+        "2 separate WCs",
+        "Wohnzimmer mit Ledersofa und TV",
+        "Küche mit Esstisch, Backofen, E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Spülmaschine, Toaster, Nespressomaschine",
+        "Überdachter Balkon nach Westen, von Wohn- und Schlafzimmern zugänglich",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    },
+    {
+      "apartment_id": "2",
+      "floor": "1. Obergeschoss",
+      "max_persons": 4,
+      "tour_url": "https://my.matterport.com/show/?m=E9hoMKNca4L",
+      "features_list": [
+        "2 Schlafzimmer mit Doppelbett",
+        "Bad mit Badewanne und Dusche, Haartrockner",
+        "Zusätzliche Dusche",
+        "2 separate WCs",
+        "Wohnzimmer mit Ledercouch und TV",
+        "Küche mit Esstisch, Spülmaschine, Backofen, E-Herd, Kühlschrank mit Gefrierfach, Wasserkocher, Nespressomaschine, Toaster",
+        "Überdachter Balkon nach Westen, zugänglich von Wohn- und Schlafzimmer",
+        "Grundausstattung an Reinigungsutensilien"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "generated": "2026-01-11",
+    "policy": "No inventions. Recommendations only from knowledge base.",
+    "notes": [
+      "Some Alpenlodge amenities are operator-provided (24/7)."
+    ]
+  },
+  "alpenlodge": {
+    "amenities_operator": [
+      "24/7 Fitnessraum",
+      "24/7 Infrarot-Sauna",
+      "Waschmaschinen & Trockner",
+      "24/7 Snackautomat"
+    ],
+    "amenities_verified_sources": [
+      {
+        "item": "Fitnessraum & Infrarotsauna als Ausstattung erwähnt",
+        "source": "turn1search11"
+      },
+      {
+        "item": "Unterkunftseintrag mit Bildern (u.a. Fitnessraum)",
+        "source": "turn1search15"
+      }
+    ]
+  },
+  "official_portals": [
+    {
+      "name": "Kufsteinerland Veranstaltungskalender",
+      "url": "https://www.kufstein.com/de/kultur/veranstaltungskalender.html"
+    },
+    {
+      "name": "Kitzbühel Veranstaltungen",
+      "url": "https://www.kitzbuehel.com/veranstaltungen/"
+    },
+    {
+      "name": "Schliersee – Unsere Seen",
+      "url": "https://www.schliersee.de/sommer/schliersee-erleben/unsere-seen/"
+    },
+    {
+      "name": "Tegernsee-Schliersee Touren-Datenbank",
+      "url": "https://www.tegernsee-schliersee.de/touren-datenbank"
+    },
+    {
+      "name": "Bayrischzell Veranstaltungskalender",
+      "url": "https://www.bayrischzell.de/veranstaltungskalender"
+    },
+    {
+      "name": "116117 Patienten-Navi",
+      "url": "https://www.116117.de/de/patienten-navi.php"
+    },
+    {
+      "name": "BLAK Notdienstsuche Bayern",
+      "url": "https://www.blak.de/notdienst/oeffentliche-notdienstsuche"
+    }
+  ],
+  "highlights": {
+    "water": [
+      {
+        "name": "Naturbadesee Landl",
+        "url": "https://www.naturbadesee-landl.at/",
+        "area": "Thiersee/Landl"
+      },
+      {
+        "name": "Park Strandbad Schliersee",
+        "url": "https://www.schliersee.de/sommer/schliersee-erleben/unsere-seen/",
+        "area": "Schliersee"
+      }
+    ],
+    "wellness_pools": [
+      {
+        "name": "Hallo Du Ebbs (Sauna/Erlebnisbad)",
+        "url": "https://www.kufstein.com/en/ebbs/info/sauna-funarena-hallo-du.html"
+      },
+      {
+        "name": "monte mare Schliersee (Wellness)",
+        "url": "https://www.monte-mare.de/schliersee/"
+      },
+      {
+        "name": "Innsola Kiefersfelden (Indoor pool)",
+        "url": "https://www.kufstein.com/en/kiefersfelden/info/indoor-pool-innsola.html"
+      }
+    ],
+    "ski": [
+      {
+        "name": "Skiparadies Sudelfeld",
+        "url": "https://www.sudelfeld.de/"
+      },
+      {
+        "name": "Skigebiet Wendelstein",
+        "url": "https://www.wendelsteinbahn.de/skigebiet-wendelstein-2"
+      }
+    ],
+    "rodel": [
+      {
+        "name": "Winter-Rodelbahn Oberaudorf-Hocheck",
+        "url": "https://hocheck.com/winter-rodelbahn/"
+      }
+    ],
+    "family": [
+      {
+        "name": "Schliersbergalm (Sommerrodelbahn/Adventure Golf)",
+        "url": "https://www.schliersbergalm.de/"
+      },
+      {
+        "name": "Markus Wasmeier Freilichtmuseum",
+        "url": "https://www.wasmeier.de/"
+      }
+    ]
+  }
+}{
+  "global": [],
+  "fewo1_list": [
+    "Handtücher",
+    "Bettwäsche",
+    "Seife und Toilettenpapier",
+    "TV",
+    "Kabelfernsehen",
+    "Heizung",
+    "Küche",
+    "Internet",
+    "WLAN",
+    "Föhn",
+    "Waschmaschine",
+    "Kostenlose Parkplätze vor Ort",
+    "Fitnesscenter",
+    "Balkon",
+    "Shampoo",
+    "Kleiderbügel",
+    "Haustiere erlaubt",
+    "Rauchen verboten",
+    "Grundausstattung zum Kochen",
+    "Kaffeemaschine",
+    "Gefrierschrank",
+    "Wasserkocher",
+    "Mikrowelle",
+    "Esstisch",
+    "Geschirrspülmaschine",
+    "Smart-TV"
+  ],
+  "notes_de": [
+    "Die Liste 'FeWo1' darf nur dort angewendet werden, wo sie explizit zugeordnet ist."
+  ]
+}
+{
+  "version": "2026-01-11",
+  "generated_at": "2026-01-11T21:07:48",
+  "center": {
+    "name": "Alpenlodge (Landl/Thiersee, Tirol)",
+    "lat": 47.586,
+    "lon": 12.107
+  },
+  "policy": {
+    "no_inventions": true,
+    "rule": "Nenne konkrete Namen/Orte/Angebote nur, wenn sie in dieser Liste stehen oder direkt aus einer verlinkten offiziellen Quelle stammen. Wenn unklar: offen sagen und auf offiziellen Verzeichnis-Link verweisen."
+  },
+  "directories": [
+    {
+      "id": "kuf_events",
+      "type": "directory",
+      "name": "Kufsteinerland – Eventkalender",
+      "area": "Kufsteinerland",
+      "url": "https://www.kufstein.com/de/kultur/events-tirol/veranstaltungen.html"
+    },
+    {
+      "id": "kuf_gastro",
+      "type": "directory",
+      "name": "Kufsteinerland – Kulinarik/Gastro",
+      "area": "Kufsteinerland",
+      "url": "https://www.kufstein.com/de/kulinarik.html"
+    },
+    {
+      "id": "kuf_touren",
+      "type": "directory",
+      "name": "Kufsteinerland – Tourenportal",
+      "area": "Kufsteinerland",
+      "url": "https://www.kufstein.com/de/tourenportal.html"
+    },
+    {
+      "id": "kitz_events",
+      "type": "directory",
+      "name": "Kitzbühel – Events",
+      "area": "Kitzbühel",
+      "url": "https://www.kitzbuehel.com/en/events/"
+    },
+    {
+      "id": "kaiserwinkl_pools",
+      "type": "directory",
+      "name": "Kaiserwinkl – Indoor pools & saunas",
+      "area": "Kaiserwinkl",
+      "url": "https://www.kaiserwinkl.com/en/swimming-tirol/indoor-pools-and-saunas.html"
+    }
+  ],
+  "items": [
+    {
+      "id": "al_amenities",
+      "type": "alpenlodge",
+      "name": "Ausstattung Alpenlodge (Überblick)",
+      "area": "Landl/Thiersee",
+      "url": "https://www.familienparadies-moni.at/de/service-extras",
+      "summary": "Indoor-Spielzimmer, Außenspielplatz, Fitnessraum, Infrarotsauna, Solarium, Spielzimmer/Entertainment, Snackautomat, Brötchenservice, Hunde erlaubt, E‑Auto‑Ladestation, KufsteinerlandCard, Naturbadesee Landl ca. 450 m."
+    },
+    {
+      "id": "festung_kufstein",
+      "type": "sight",
+      "name": "Festung Kufstein",
+      "area": "Kufstein",
+      "url": "https://www.kufstein.com/de/kultur/sehenswuerdigkeiten/ausflugsziele-ausfluege-tirol.html",
+      "summary": "Wahrzeichen mit Konzerten/Events und Blick über die Stadt.",
+      "tags": [
+        "Kultur",
+        "Aussicht"
+      ]
+    },
+    {
+      "id": "riedel",
+      "type": "sight",
+      "name": "Riedel Glas (Glashaus/Manufaktur)",
+      "area": "Kufstein",
+      "url": "https://www.kufstein.com/de/kultur/sehenswuerdigkeiten/ausflugsziele-ausfluege-tirol.html",
+      "summary": "Glasbläser & Manufaktur-Erlebnis (gut bei Schlechtwetter).",
+      "tags": [
+        "Indoor",
+        "Familie",
+        "Kultur"
+      ]
+    },
+    {
+      "id": "kaisertal",
+      "type": "nature",
+      "name": "Kaisertal (Naturschutzgebiet)",
+      "area": "Kufstein",
+      "url": "https://www.kufstein.com/de/kultur/sehenswuerdigkeiten/ausflugsziele-ausfluege-tirol.html",
+      "summary": "Wildromantisches Tal, berühmte Wanderung (Sommer/Winter).",
+      "tags": [
+        "Natur",
+        "Wandern"
+      ]
+    },
+    {
+      "id": "kuf_card",
+      "type": "card",
+      "name": "KufsteinerlandCard",
+      "area": "Kufsteinerland",
+      "url": "https://www.kufstein.com/de/kufsteinerlandcard.html",
+      "summary": "Vorteilskarte inkl. Erlebnisprogramm und gratis Bus im Kufsteinerland.",
+      "tags": [
+        "ÖPNV",
+        "Vorteilskarte"
+      ]
+    },
+    {
+      "id": "naturbadesee_landl",
+      "type": "lake",
+      "name": "Naturbadesee Landl",
+      "area": "Landl/Thiersee",
+      "url": "https://www.kufstein.com/de/landl/info/naturbadesee-landl.html",
+      "summary": "Naturbadesee in Landl (Sommer: Baden/Relaxen).",
+      "tags": [
+        "Sommer",
+        "Baden",
+        "Familie"
+      ]
+    },
+    {
+      "id": "tourenportal",
+      "type": "hike",
+      "name": "Tourenportal Kufsteinerland",
+      "area": "Kufsteinerland",
+      "url": "https://www.kufstein.com/de/tourenportal.html",
+      "summary": "Offizielles Tourenportal für Bergtouren, Rad, Skitouren, Winterwandern u.v.m.",
+      "tags": [
+        "Wandern",
+        "Winter",
+        "MTB"
+      ]
+    },
+    {
+      "id": "premium_winter_kaisertal",
+      "type": "winter_hike",
+      "name": "Premium Winterwanderweg: Winterliches Kaisertal",
+      "area": "Kufstein",
+      "url": "https://www.kufstein.com/de/tours/premium-winterwanderweg-winterliches-kaisertal.html",
+      "summary": "Gut begehbare Winterwanderung durchs Kaisertal bis zur Antoniuskapelle.",
+      "tags": [
+        "Winterwandern"
+      ]
+    },
+    {
+      "id": "skiwelt",
+      "type": "ski_area",
+      "name": "SkiWelt Wilder Kaiser – Brixental",
+      "area": "Region Wilder Kaiser",
+      "url": "https://www.skiwelt.at/",
+      "summary": "Großes Skigebiet (275 km Pisten laut Betreiber).",
+      "tags": [
+        "Skigebiet",
+        "Groß"
+      ]
+    },
+    {
+      "id": "sudelfeld",
+      "type": "ski_area",
+      "name": "Skiparadies Sudelfeld",
+      "area": "Bayrische Alpen",
+      "url": "https://www.sudelfeld.de/",
+      "summary": "Großes Familienskigebiet in Bayern (Wendelsteinregion).",
+      "tags": [
+        "Skigebiet",
+        "Familie"
+      ]
+    },
+    {
+      "id": "hocheck",
+      "type": "ski_area",
+      "name": "Hocheck Erlebnisberg Oberaudorf (Flutlicht)",
+      "area": "Oberaudorf",
+      "url": "https://hocheck.com/winter/",
+      "summary": "Skigebiet + Winterrodelbahn; Flutlichtbetrieb laut Betreiber.",
+      "tags": [
+        "Skigebiet",
+        "Flutlicht",
+        "Rodeln"
+      ]
+    },
+    {
+      "id": "zahmer_kaiser_ski",
+      "type": "ski_area",
+      "name": "Skigebiet Zahmer Kaiser",
+      "area": "Walchsee",
+      "url": "https://www.tirol.at/aktivitaeten/sport/skifahren/skigebiete/skigebiet-zahmer-kaiser",
+      "summary": "Familienfreundliches Skigebiet (Tirol.at).",
+      "tags": [
+        "Skigebiet",
+        "Familie"
+      ]
+    },
+    {
+      "id": "tirolina_rental",
+      "type": "rental",
+      "name": "Tirolina – Aktivberg Thiersee (Skiverleih)",
+      "area": "Thiersee",
+      "url": "https://www.bergfex.at/tirolina-aktivberg-thiersee/skiverleih/",
+      "summary": "Skiverleih-Listing für Tirolina (Thiersee).",
+      "tags": [
+        "Skiverleih",
+        "Snowboard"
+      ]
+    },
+    {
+      "id": "kala_alm_rodeln",
+      "type": "rental",
+      "name": "Rodelbahn Kala Alm (mit Verleih-Hinweisen)",
+      "area": "Thiersee",
+      "url": "https://www.kufstein.com/de/tours/rodelbahn-kala-alm.html",
+      "summary": "Rodelbahn-Tourseite inkl. Infos zu Rodel/Verleih/Preisen (wenn angegeben).",
+      "tags": [
+        "Rodeln",
+        "Schlittenverleih"
+      ]
+    },
+    {
+      "id": "minutes",
+      "type": "restaurant",
+      "name": "Minute's – The.Ristorante",
+      "area": "Kufstein",
+      "url": "https://www.kufstein.com/en/kufstein/info/minutes-theristorante.html",
+      "summary": "Fine Dining abends, tagsüber Bistro (laut Kufsteinerland).",
+      "tags": [
+        "Fine Dining",
+        "Bistro"
+      ]
+    },
+    {
+      "id": "auracher",
+      "type": "restaurant",
+      "name": "Auracher Löchl – Tyrolean inn and wine bar",
+      "area": "Kufstein",
+      "url": "https://www.kufstein.com/en/kufstein/info/auracher-loechl-tyrolean-inn-and-wine-bar.html",
+      "summary": "Historisches Wirtshaus in der Altstadt (laut Kufsteinerland).",
+      "tags": [
+        "Tirol",
+        "Altstadt"
+      ]
+    },
+    {
+      "id": "unterwirt",
+      "type": "restaurant",
+      "name": "UNTERWIRT gourmet restaurant",
+      "area": "Ebbs",
+      "url": "https://www.kufstein.com/en/ebbs/info/unterwirt-gourmet-restaurant.html",
+      "summary": "Gourmet-Restaurant/Hotel (laut Kufsteinerland).",
+      "tags": [
+        "Gourmet"
+      ]
+    },
+    {
+      "id": "dresch",
+      "type": "restaurant",
+      "name": "Guesthouse & Hotel Dresch",
+      "area": "Erl",
+      "url": "https://www.kufstein.com/en/erl/info/guesthouse-hotel-dresch.html",
+      "summary": "Gasthaus/Hotel (laut Kufsteinerland).",
+      "tags": [
+        "Regional"
+      ]
+    },
+    {
+      "id": "aerzte_apotheken_kuf",
+      "type": "health_info",
+      "name": "Kufstein – Ärzte & Apotheken (Übersicht)",
+      "area": "Kufstein",
+      "url": "https://www.kufstein.at/de/service/gesundheit/aerzte-apotheken.html",
+      "summary": "Städtische Übersicht/Links zu Ärzten & Apotheken.",
+      "tags": [
+        "Ärzte",
+        "Apotheken"
+      ]
+    },
+    {
+      "id": "aerzte_141",
+      "type": "health_info",
+      "name": "Ärztebereitschaftsdienst Österreich – 141",
+      "area": "Österreich",
+      "url": "https://www.gesundheit.gv.at/service/gesundheitsnummern/aerztebereitschaftsdienst.html",
+      "summary": "Österreichweite Nummer 141 (laut gesundheit.gv.at).",
+      "tags": [
+        "Notdienst"
+      ]
+    },
+    {
+      "id": "aek_tirol",
+      "type": "health_info",
+      "name": "Ärztekammer Tirol – Bereitschaftsdienst",
+      "area": "Tirol",
+      "url": "https://www.aektirol.at/service/arzt-im-bereitschaftsdienst",
+      "summary": "Informationen zum Bereitschaftsdienst in Tirol (Ärztekammer).",
+      "tags": [
+        "Notdienst"
+      ]
+    },
+    {
+      "id": "innsola",
+      "type": "indoor_pool",
+      "name": "Indoor pool Innsola",
+      "area": "Kiefersfelden",
+      "url": "https://www.innsola.de/",
+      "summary": "Schwimmbad + Sauna (Betreiberseite).",
+      "tags": [
+        "Hallenbad",
+        "Sauna"
+      ]
+    },
+    {
+      "id": "hallo_du_sauna",
+      "type": "wellness",
+      "name": "Sauna Funarena Hallo Du",
+      "area": "Ebbs",
+      "url": "https://www.kufstein.at/de/ebbs/info/sauna-funarena-hallo-du.html",
+      "summary": "Sauna-Angebot in Ebbs (Kufstein.at Infoseite).",
+      "tags": [
+        "Sauna"
+      ]
+    },
+    {
+      "id": "das_sieben",
+      "type": "wellness",
+      "name": "DAS SIEBEN (SPA/Pool)",
+      "area": "Bad Häring",
+      "url": "https://www.das-sieben.com/",
+      "summary": "Hotel-SPA mit Innen-/Außenpool (Betreiberseite).",
+      "tags": [
+        "Wellness",
+        "Pool"
+      ]
+    },
+    {
+      "id": "winterwandern",
+      "type": "winter",
+      "name": "Winterwandern im Kufsteinerland (Übersicht)",
+      "area": "Kufsteinerland",
+      "url": "https://www.kufstein.com/de/aktivitaeten/winter/winterwandern.html",
+      "summary": "Übersichtsseite Winterwandern + Erlebnisprogramme.",
+      "tags": [
+        "Winter"
+      ]
+    }
+  ]
+}{
+  "generated_at": "2026-01-22T11:57:38.795158+00:00",
+  "files": [
+    "knowledge/rules.json",
+    "knowledge/sources.json",
+    "knowledge/property.json",
+    "knowledge/apartments.json",
+    "knowledge/equipment.json",
+    "knowledge/manifest.json"
+  ],
+  "dynamic_source": "chat.alpenlodge.info"
+}
+{
+  "property_id": "alpenlodge-landl",
+  "name": "Haus Alpenlodge",
+  "location": {
+    "place": "Landl bei Thiersee",
+    "region": "Kufsteinerland"
+  },
+  "verified_highlights_bullets_de": [
+    "Wir bieten familienfreundliche Ferienwohnungen für bis zu 7 Personen mitten im Thierseetal",
+    "Unser Apartmenthaus ist bestens für Familien mit Kindern, Paare, Alleinreisende oder Gruppen geeignet",
+    "Im Erdgeschoß finden die Kinder einen großen Indoorspielplatz mit sehr vielen Spielmöglichkeiten",
+    "Vor unserem Haus können sich die Kids so richtig auf dem tollen Außenspielplatz austoben",
+    "Bei uns sind Hunde willkommen - wir freuen uns auf euren vierbeinigen Liebling",
+    "Wir bieten eine Ladestation für E-Autos",
+    "Der geräumige Saal ist perfekt für gemütliches Zusammensitzen, oder Veranstaltungen geeignet",
+    "Unser Fitnessraum bietet verschiedene Sportmöglichkeiten, ein Solarium und eine Infrarotsaune",
+    "Badehose einpacken & los: wir liegen nur wenige Meter vom schönen Naturbadesee entfernt",
+    "Gratis KufsteinerlandCard : Kostenlose Erlebnisse, attraktive Ermäßigungen und Spezialangebote"
+  ],
+  "max_persons_apartment": 7,
+  "kufsteinerlandcard": {
+    "included": true,
+    "link": "https://www.kufstein.com/de/service-info/card.html"
+  }
+}
+{
+  "static_sources": [
+    "verifizierte Objekt- und Wohnungsinformationen aus bereitgestellten Dateien"
+  ],
+  "dynamic_sources": [
+    {
+      "name": "preise_verfuegbarkeit",
+      "source": "chat.alpenlodge.info"
+    }
+  ],
+  "not_allowed": [
+    "Buchungssysteme",
+    "externe Webseiten außer chat.alpenlodge.info",
+    "allgemeines Weltwissen",
+    "Nutzerannahmen"
+  ]
+}
+{
+  "meta": {
+    "version": "2026-01-11-v8",
+    "language": "de",
+    "rules": {
+      "default_radius_km": 35,
+      "never_invent": true,
+      "always_show_source": true,
+      "no_old_brand_name": true,
+      "when_uncertain": "Nicht behaupten – stattdessen passende offizielle Quelle/Verzeichnis verlinken."
+    }
+  },
+  "alpenlodge": {
+    "name": "Alpenlodge",
+    "center": {
+      "lat": 47.589,
+      "lon": 12.03543
+    },
+    "amenities": [
+      {
+        "type": "amenity",
+        "name": "Fitnessraum",
+        "details": "24/7 frei benutzbar (kostenfrei)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Infrarot-Sauna",
+        "details": "24/7 frei benutzbar (kostenfrei)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Waschmaschinen & Trockner",
+        "details": "24/7 verfügbar",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Indoor-Spielzimmer",
+        "details": "für Kinder (wetterunabhängig)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Außenspielplatz",
+        "details": "direkt am Haus/nah am Haus",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Snackautomat",
+        "details": "24/7 verfügbar",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "E‑Auto‑Ladestation",
+        "details": "vor Ort (je nach Verfügbarkeit)",
+        "source": "INTERNAL:owner-confirmed"
+      }
+    ]
+  },
+  "sources": {
+    "restaurants": {
+      "label": "Gastronomie-Verzeichnisse (Kufsteinerland / Schliersee / Bayrischzell)",
+      "source": "https://www.kufstein.com/de/kulinarik/gastronomie.html | https://www.schliersee.de/sommer/ihre-gastgeber/gastronomie/ | https://www.bayrischzell.de/essen-trinken"
+    },
+    "ski_areas": {
+      "label": "Skigebiete (offiziell)",
+      "source": "https://www.skiwelt.at/ | https://zahmerkaiser.com/ | https://www.hocheck.com/ | https://www.sudelfeld.de/ | https://www.alpenbahnen-spitzingsee.de/ | https://www.schneeberglifte.at/"
+    },
+    "rental": {
+      "label": "Skischulen & Verleih (offiziell)",
+      "source": "https://www.alpenbahnen-spitzingsee.de/skischulen-verleih/ | https://www.sudelfeld.de/skischulen-und-skiverleih/"
+    },
+    "lakes_pools_wellness": {
+      "label": "Badeseen / Hallenbad / Wellness",
+      "source": "https://www.kufstein.com/de/aktivitaeten/sommer/badeurlaub.html | https://www.innsola.de/ | https://www.das-sieben.com/ | https://www.monte-mare.de/schliersee/"
+    },
+    "events": {
+      "label": "Events & Sportevents (offiziell)",
+      "source": "https://www.kufstein.com/de/kultur/events-tirol/veranstaltungskalender.html | https://www.kufstein.com/de/kultur/events-tirol/sport-events.html | https://www.alpenbahnen-spitzingsee.de/events/ | https://www.kitzbuehel.com/de/events/"
+    },
+    "doctors_pharmacies": {
+      "label": "Ärzte/Apotheken (offizielle Suchen)",
+      "source": "https://www.1450.at/ | https://www.aektirol.at/arztsuche | https://www.apothekerkammer.at/apothekensuche | https://www.aponet.de/apothekensuche"
+    },
+    "hiking": {
+      "label": "Tourenportale & Wandern (offiziell)",
+      "source": "https://maps.kufstein.com/ | https://servus-schliersee.de/wandern/ | https://maps.tegernsee-schliersee.de/ | https://www.alpenverein.de/files/broschueren/bergerlebnis-spitzing_19322.pdf"
+    }
+  },
+  "items": [
+    {
+      "type": "event",
+      "name": "56. Ebbser Koasamarsch (13.06.2026)",
+      "category": "sport_event",
+      "location_name": "Ebbs (Tirol)",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Wander- & Trailrunning-Event; Termin laut Veranstalterseite.",
+      "source": "https://www.koasamarsch.at/de/koasamarsch-ebbs-2025-55-jahre.html | https://mapcarta.com/28090808",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "10. Kufsteinerland Radmarathon (23.08.2026)",
+      "category": "sport_event",
+      "location_name": "Kufstein/Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Radmarathon; Termin laut Veranstalterseite.",
+      "source": "https://www.kufsteinerland-radmarathon.at/de/kufsteinerland-radmarathon.html | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Hechtsee X‑Treme (15.08.2026)",
+      "category": "sport_event",
+      "location_name": "Kufstein (Hechtsee)",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Open‑Water‑Schwimmwettbewerb am Hechtsee; Termin laut Veranstalterseite.",
+      "source": "https://tri-x-kufstein.at/unsere-events/schwimmwettbewerb-hechtsee-x-treme/ | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Int. Thiersee Triathlon (Save-the-Date 16.08.2026)",
+      "category": "sport_event",
+      "location_name": "Thiersee (Tirol)",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Triathlon (Sprint & olympisch) – Datum laut Veranstalterseite.",
+      "source": "https://www.thiersee-triathlon.at/ | https://mapcarta.com/17873052",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Sportevents im Kufsteinerland (Übersicht)",
+      "category": "directory",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Sportevent-Übersicht (nutzen, wenn ein konkreter Termin gesucht wird).",
+      "source": "https://www.kufstein.com/de/kultur/events-tirol/sport-events.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "SkiWelt Wilder Kaiser – Brixental",
+      "category": "ski_area",
+      "location_name": "SkiWelt Region",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Großes Skigebiet (offiziell).",
+      "source": "https://www.skiwelt.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Zahmer Kaiser – Walchsee",
+      "category": "ski_area",
+      "location_name": "Walchsee",
+      "lat": 47.651,
+      "lon": 12.318,
+      "details": "Familiäres Skigebiet/Region (offiziell).",
+      "source": "https://zahmerkaiser.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Hocheck Oberaudorf",
+      "category": "ski_area",
+      "location_name": "Oberaudorf (Bayern)",
+      "lat": 47.651,
+      "lon": 12.173,
+      "details": "Ski- & Freizeitgebiet Hocheck (offiziell).",
+      "source": "https://www.hocheck.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Skigebiet Sudelfeld",
+      "category": "ski_area",
+      "location_name": "Bayrischzell/Sudelfeld",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Skigebiet Sudelfeld (offiziell).",
+      "source": "https://www.sudelfeld.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Spitzingsee – Alpenbahnen",
+      "category": "ski_area",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Skigebiet Spitzingsee (offiziell).",
+      "source": "https://www.alpenbahnen-spitzingsee.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Schneeberglifte Thiersee (Mitterland)",
+      "category": "ski_area",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Kleines Skigebiet (offiziell).",
+      "source": "https://www.schneeberglifte.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Skischulen & Verleih Spitzingsee (Übersicht)",
+      "category": "rental",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Offizielle Übersicht zu Skischulen/Verleih am Spitzingsee.",
+      "source": "https://www.alpenbahnen-spitzingsee.de/skischulen-verleih/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Skischulen & Skiverleih Sudelfeld (Übersicht)",
+      "category": "rental",
+      "location_name": "Bayrischzell/Sudelfeld",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Offizielle Übersicht zu Skischulen/Verleih am Sudelfeld.",
+      "source": "https://www.sudelfeld.de/skischulen-und-skiverleih/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Rodeln Hocheck (Info)",
+      "category": "rental",
+      "location_name": "Oberaudorf",
+      "lat": 47.651,
+      "lon": 12.173,
+      "details": "Rodelbahn-Info (inkl. Verleih je nach Saison).",
+      "source": "https://www.hocheck.com/rodeln/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Rodeln Zahmer Kaiser (Info)",
+      "category": "rental",
+      "location_name": "Walchsee",
+      "lat": 47.651,
+      "lon": 12.318,
+      "details": "Rodel-Angebote im Gebiet Zahmer Kaiser.",
+      "source": "https://zahmerkaiser.com/winter/rodeln/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "Thiersee (Ort/See – Überblick)",
+      "category": "lake",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Orts-/Seeseite Thiersee (Kufsteinerland).",
+      "source": "https://www.kufstein.com/de/region/orte/thiersee.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "INNSOLA Hallenbad & Sauna",
+      "category": "pool",
+      "location_name": "Kiefersfelden",
+      "lat": 47.614,
+      "lon": 12.188,
+      "details": "Hallenbad & Sauna (offiziell).",
+      "source": "https://www.innsola.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "DAS SIEBEN – Therme/Wellness",
+      "category": "wellness",
+      "location_name": "Bad Häring",
+      "lat": 47.511,
+      "lon": 12.118,
+      "details": "Wellness/SPA (offiziell).",
+      "source": "https://www.das-sieben.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "Monte Mare Schliersee (Bad & Sauna)",
+      "category": "pool_wellness",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Erlebnisbad & Sauna (offiziell).",
+      "source": "https://www.monte-mare.de/schliersee/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Auracher Löchl (Restaurant)",
+      "category": "restaurant",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Restaurant (Betreiberseite).",
+      "source": "https://www.auracher-loechl.at/de/restaurant/restaurant-kufstein/35-0.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Berghaus Aschenbrenner",
+      "category": "restaurant",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Berggasthaus (Betreiberseite).",
+      "source": "https://www.berghaus-aschenbrenner.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Alpengasthof Schneeberg",
+      "category": "restaurant",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Gasthof/Restaurant (Betreiberseite).",
+      "source": "https://www.gasthof-schneeberg.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Obere Firstalm",
+      "category": "restaurant",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Berggasthof (Betreiberseite).",
+      "source": "https://firstalm.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Gastronomie-Verzeichnis Kufsteinerland (Quelle)",
+      "category": "directory",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielles Verzeichnis – nutzen, wenn man ‚mehr Auswahl‘ braucht.",
+      "source": "https://www.kufstein.com/de/kulinarik/gastronomie.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Gastronomie-Verzeichnis Schliersee (Quelle)",
+      "category": "directory",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Offizielles Verzeichnis – für Schliersee/Spitzing.",
+      "source": "https://www.schliersee.de/sommer/ihre-gastgeber/gastronomie/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Essen & Trinken Bayrischzell (Quelle)",
+      "category": "directory",
+      "location_name": "Bayrischzell",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Offizielle Übersicht Gastronomie Bayrischzell.",
+      "source": "https://www.bayrischzell.de/essen-trinken",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Festung Kufstein",
+      "category": "sight",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Historische Festung mit Museum/Events (offiziell).",
+      "source": "https://www.festung.kufstein.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Hallo Du – FunArena Ebbs",
+      "category": "indoor_outdoor",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Freizeitpark in Ebbs (offiziell).",
+      "source": "https://www.hallodu.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Raritätenzoo Ebbs",
+      "category": "zoo",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Tierpark (offiziell).",
+      "source": "https://www.raritaetenzoo-ebbs.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Fohlenhof Ebbs (Haflingerzentrum)",
+      "category": "horses",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Haflingerzentrum (offiziell).",
+      "source": "https://www.haflinger-tirol.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "SLYRS Destillerie",
+      "category": "visit",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Besichtigung/Shop je nach Angebot (offiziell).",
+      "source": "https://slyrs.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Tourenportal Kufsteinerland (Karte/Filter)",
+      "category": "tour_portal",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Interaktives Tourenportal (GPX, Filter).",
+      "source": "https://maps.kufstein.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Sagenweg – Schattbergrunde Thiersee",
+      "category": "trail",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Themenweg (offizielle Tourbeschreibung).",
+      "source": "https://www.kufstein.com/de/tours/sagenweg-schattbergrunde-thiersee.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Pendling Circuit (Rundtour)",
+      "category": "trail",
+      "location_name": "Thiersee/Kufstein",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Rundtour (Tourbeschreibung).",
+      "source": "https://www.kufstein.com/en/tours/330-pendling-circuit-1.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Wandern am Schliersee & Spitzingsee (Übersicht)",
+      "category": "trail_overview",
+      "location_name": "Schliersee/Spitzingsee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Übersicht Wandern (Servus Schliersee).",
+      "source": "https://servus-schliersee.de/wandern/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Tourenportal Tegernsee-Schliersee (Karte/Filter)",
+      "category": "tour_portal",
+      "location_name": "Tegernsee-Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Interaktives Portal für Touren & POIs.",
+      "source": "https://maps.tegernsee-schliersee.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Alpenverein PDF: Bergerlebnis Spitzingsee",
+      "category": "pdf",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "PDF mit Tourenvorschlägen (Brecherspitz/Rotwand etc.).",
+      "source": "https://www.alpenverein.de/files/broschueren/bergerlebnis-spitzing_19322.pdf",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Gesundheitsberatung Österreich (1450)",
+      "category": "healthline",
+      "location_name": "Österreich",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Offizielle Infos zur Gesundheitsnummer 1450.",
+      "source": "https://www.1450.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Arztsuche Ärztekammer Tirol (Quelle)",
+      "category": "directory",
+      "location_name": "Tirol",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Arztsuche.",
+      "source": "https://www.aektirol.at/arztsuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Apothekensuche Österreichische Apothekerkammer (Quelle)",
+      "category": "directory",
+      "location_name": "Österreich",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Apothekensuche (inkl. Notdienst je nach Filter).",
+      "source": "https://www.apothekerkammer.at/apothekensuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Apothekensuche/Notdienst Deutschland (Quelle)",
+      "category": "directory",
+      "location_name": "Deutschland",
+      "lat": 47.614,
+      "lon": 12.188,
+      "details": "Apothekensuche Deutschland (inkl. Notdienst).",
+      "source": "https://www.aponet.de/apothekensuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Kitzbühel Events (Kalender)",
+      "category": "directory",
+      "location_name": "Kitzbühel (weiterer Umkreis)",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizieller Eventkalender – nur nutzen, wenn explizit Kitzbühel gewünscht.",
+      "source": "https://www.kitzbuehel.com/de/events/ | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "extended"
+      ]
+    }
+  ]
+}{
+  "meta": {
+    "version": "2026-01-13-v9",
+    "language": "de",
+    "rules": {
+      "default_radius_km": 35,
+      "never_invent": true,
+      "always_show_source": true,
+      "no_old_brand_name": true,
+      "when_uncertain": "Nicht behaupten – stattdessen passende offizielle Quelle/Verzeichnis verlinken."
+    },
+    "generated_at": "2026-01-13T11:01:26+00:00"
+  },
+  "alpenlodge": {
+    "name": "Alpenlodge",
+    "center": {
+      "lat": 47.589,
+      "lon": 12.03543
+    },
+    "amenities": [
+      {
+        "type": "amenity",
+        "name": "Fitnessraum",
+        "details": "24/7 frei benutzbar (kostenfrei)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Infrarot-Sauna",
+        "details": "24/7 frei benutzbar (kostenfrei)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Waschmaschinen & Trockner",
+        "details": "24/7 verfügbar",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Indoor-Spielzimmer",
+        "details": "für Kinder (wetterunabhängig)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Außenspielplatz",
+        "details": "direkt am Haus/nah am Haus",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Snackautomat",
+        "details": "24/7 verfügbar",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "E‑Auto‑Ladestation",
+        "details": "vor Ort (je nach Verfügbarkeit)",
+        "source": "INTERNAL:owner-confirmed"
+      },
+      {
+        "type": "amenity",
+        "name": "Solarium",
+        "details": "Solarium vor Ort.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "service",
+        "name": "Brötchenservice",
+        "details": "Brötchenservice verfügbar.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "policy",
+        "name": "Hunde erlaubt",
+        "details": "Hunde sind erlaubt (Gebühr siehe Hausinfos).",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "guest_card",
+        "name": "KufsteinerlandCard",
+        "details": "KufsteinerlandCard für Gäste (Details siehe Hausinfos).",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "highlight",
+        "name": "Naturbadesee Landl",
+        "details": "Naturbadesee Landl ca. 450 m von der Alpenlodge.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Hund",
+        "details": "Hund: 15 € pro Nacht.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Kurtaxe",
+        "details": "Kurtaxe: 3,50 € pro Person/Nacht ab 15 Jahren.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "fee",
+        "name": "Zusatzperson",
+        "details": "Zusatzperson: ca. 24 € pro Nacht.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "info",
+        "name": "Babybett",
+        "details": "Babybett: gratis.",
+        "source": "INTERNAL:project-knowledge"
+      },
+      {
+        "type": "info",
+        "name": "AGB",
+        "details": "AGB-Basis: österreichische Hotel‑AGB.",
+        "source": "INTERNAL:project-knowledge"
+      }
+    ]
+  },
+  "sources": {
+    "restaurants": {
+      "label": "Gastronomie-Verzeichnisse (Kufsteinerland / Schliersee / Bayrischzell)",
+      "source": "https://www.kufstein.com/de/kulinarik/gastronomie.html | https://www.schliersee.de/sommer/ihre-gastgeber/gastronomie/ | https://www.bayrischzell.de/essen-trinken"
+    },
+    "ski_areas": {
+      "label": "Skigebiete (offiziell)",
+      "source": "https://www.skiwelt.at/ | https://zahmerkaiser.com/ | https://www.hocheck.com/ | https://www.sudelfeld.de/ | https://www.alpenbahnen-spitzingsee.de/ | https://www.schneeberglifte.at/"
+    },
+    "rental": {
+      "label": "Skischulen & Verleih (offiziell)",
+      "source": "https://www.alpenbahnen-spitzingsee.de/skischulen-verleih/ | https://www.sudelfeld.de/skischulen-und-skiverleih/"
+    },
+    "lakes_pools_wellness": {
+      "label": "Badeseen / Hallenbad / Wellness",
+      "source": "https://www.kufstein.com/de/aktivitaeten/sommer/badeurlaub.html | https://www.innsola.de/ | https://www.das-sieben.com/ | https://www.monte-mare.de/schliersee/"
+    },
+    "events": {
+      "label": "Events & Sportevents (offiziell)",
+      "source": "https://www.kufstein.com/de/kultur/events-tirol/veranstaltungskalender.html | https://www.kufstein.com/de/kultur/events-tirol/sport-events.html | https://www.alpenbahnen-spitzingsee.de/events/ | https://www.kitzbuehel.com/de/events/"
+    },
+    "doctors_pharmacies": {
+      "label": "Ärzte/Apotheken (offizielle Suchen)",
+      "source": "https://www.1450.at/ | https://www.aektirol.at/arztsuche | https://www.apothekerkammer.at/apothekensuche | https://www.aponet.de/apothekensuche"
+    },
+    "hiking": {
+      "label": "Tourenportale & Wandern (offiziell)",
+      "source": "https://maps.kufstein.com/ | https://servus-schliersee.de/wandern/ | https://maps.tegernsee-schliersee.de/ | https://www.alpenverein.de/files/broschueren/bergerlebnis-spitzing_19322.pdf"
+    }
+  },
+  "items": [
+    {
+      "type": "event",
+      "name": "56. Ebbser Koasamarsch (13.06.2026)",
+      "category": "sport_event",
+      "location_name": "Ebbs (Tirol)",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Wander- & Trailrunning-Event; Termin laut Veranstalterseite.",
+      "source": "https://www.koasamarsch.at/de/koasamarsch-ebbs-2025-55-jahre.html | https://mapcarta.com/28090808",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "10. Kufsteinerland Radmarathon (23.08.2026)",
+      "category": "sport_event",
+      "location_name": "Kufstein/Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Radmarathon; Termin laut Veranstalterseite.",
+      "source": "https://www.kufsteinerland-radmarathon.at/de/kufsteinerland-radmarathon.html | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Hechtsee X‑Treme (15.08.2026)",
+      "category": "sport_event",
+      "location_name": "Kufstein (Hechtsee)",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Open‑Water‑Schwimmwettbewerb am Hechtsee; Termin laut Veranstalterseite.",
+      "source": "https://tri-x-kufstein.at/unsere-events/schwimmwettbewerb-hechtsee-x-treme/ | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Int. Thiersee Triathlon (Save-the-Date 16.08.2026)",
+      "category": "sport_event",
+      "location_name": "Thiersee (Tirol)",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Triathlon (Sprint & olympisch) – Datum laut Veranstalterseite.",
+      "source": "https://www.thiersee-triathlon.at/ | https://mapcarta.com/17873052",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Sportevents im Kufsteinerland (Übersicht)",
+      "category": "directory",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Sportevent-Übersicht (nutzen, wenn ein konkreter Termin gesucht wird).",
+      "source": "https://www.kufstein.com/de/kultur/events-tirol/sport-events.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "SkiWelt Wilder Kaiser – Brixental",
+      "category": "ski_area",
+      "location_name": "SkiWelt Region",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Großes Skigebiet (offiziell).",
+      "source": "https://www.skiwelt.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Zahmer Kaiser – Walchsee",
+      "category": "ski_area",
+      "location_name": "Walchsee",
+      "lat": 47.651,
+      "lon": 12.318,
+      "details": "Familiäres Skigebiet/Region (offiziell).",
+      "source": "https://zahmerkaiser.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Hocheck Oberaudorf",
+      "category": "ski_area",
+      "location_name": "Oberaudorf (Bayern)",
+      "lat": 47.651,
+      "lon": 12.173,
+      "details": "Ski- & Freizeitgebiet Hocheck (offiziell).",
+      "source": "https://www.hocheck.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Skigebiet Sudelfeld",
+      "category": "ski_area",
+      "location_name": "Bayrischzell/Sudelfeld",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Skigebiet Sudelfeld (offiziell).",
+      "source": "https://www.sudelfeld.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Spitzingsee – Alpenbahnen",
+      "category": "ski_area",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Skigebiet Spitzingsee (offiziell).",
+      "source": "https://www.alpenbahnen-spitzingsee.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "ski_area",
+      "name": "Schneeberglifte Thiersee (Mitterland)",
+      "category": "ski_area",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Kleines Skigebiet (offiziell).",
+      "source": "https://www.schneeberglifte.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Skischulen & Verleih Spitzingsee (Übersicht)",
+      "category": "rental",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Offizielle Übersicht zu Skischulen/Verleih am Spitzingsee.",
+      "source": "https://www.alpenbahnen-spitzingsee.de/skischulen-verleih/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Skischulen & Skiverleih Sudelfeld (Übersicht)",
+      "category": "rental",
+      "location_name": "Bayrischzell/Sudelfeld",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Offizielle Übersicht zu Skischulen/Verleih am Sudelfeld.",
+      "source": "https://www.sudelfeld.de/skischulen-und-skiverleih/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Rodeln Hocheck (Info)",
+      "category": "rental",
+      "location_name": "Oberaudorf",
+      "lat": 47.651,
+      "lon": 12.173,
+      "details": "Rodelbahn-Info (inkl. Verleih je nach Saison).",
+      "source": "https://www.hocheck.com/rodeln/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "rental",
+      "name": "Rodeln Zahmer Kaiser (Info)",
+      "category": "rental",
+      "location_name": "Walchsee",
+      "lat": 47.651,
+      "lon": 12.318,
+      "details": "Rodel-Angebote im Gebiet Zahmer Kaiser.",
+      "source": "https://zahmerkaiser.com/winter/rodeln/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "Thiersee (Ort/See – Überblick)",
+      "category": "lake",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Orts-/Seeseite Thiersee (Kufsteinerland).",
+      "source": "https://www.kufstein.com/de/region/orte/thiersee.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "INNSOLA Hallenbad & Sauna",
+      "category": "pool",
+      "location_name": "Kiefersfelden",
+      "lat": 47.614,
+      "lon": 12.188,
+      "details": "Hallenbad & Sauna (offiziell).",
+      "source": "https://www.innsola.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "DAS SIEBEN – Therme/Wellness",
+      "category": "wellness",
+      "location_name": "Bad Häring",
+      "lat": 47.511,
+      "lon": 12.118,
+      "details": "Wellness/SPA (offiziell).",
+      "source": "https://www.das-sieben.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "lake_pool_wellness",
+      "name": "Monte Mare Schliersee (Bad & Sauna)",
+      "category": "pool_wellness",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Erlebnisbad & Sauna (offiziell).",
+      "source": "https://www.monte-mare.de/schliersee/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Auracher Löchl (Restaurant)",
+      "category": "restaurant",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Restaurant (Betreiberseite).",
+      "source": "https://www.auracher-loechl.at/de/restaurant/restaurant-kufstein/35-0.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Berghaus Aschenbrenner",
+      "category": "restaurant",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Berggasthaus (Betreiberseite).",
+      "source": "https://www.berghaus-aschenbrenner.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Alpengasthof Schneeberg",
+      "category": "restaurant",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Gasthof/Restaurant (Betreiberseite).",
+      "source": "https://www.gasthof-schneeberg.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Obere Firstalm",
+      "category": "restaurant",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "Berggasthof (Betreiberseite).",
+      "source": "https://firstalm.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Gastronomie-Verzeichnis Kufsteinerland (Quelle)",
+      "category": "directory",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielles Verzeichnis – nutzen, wenn man ‚mehr Auswahl‘ braucht.",
+      "source": "https://www.kufstein.com/de/kulinarik/gastronomie.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Gastronomie-Verzeichnis Schliersee (Quelle)",
+      "category": "directory",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Offizielles Verzeichnis – für Schliersee/Spitzing.",
+      "source": "https://www.schliersee.de/sommer/ihre-gastgeber/gastronomie/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "restaurant",
+      "name": "Essen & Trinken Bayrischzell (Quelle)",
+      "category": "directory",
+      "location_name": "Bayrischzell",
+      "lat": 47.675,
+      "lon": 11.997,
+      "details": "Offizielle Übersicht Gastronomie Bayrischzell.",
+      "source": "https://www.bayrischzell.de/essen-trinken",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Festung Kufstein",
+      "category": "sight",
+      "location_name": "Kufstein",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Historische Festung mit Museum/Events (offiziell).",
+      "source": "https://www.festung.kufstein.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Hallo Du – FunArena Ebbs",
+      "category": "indoor_outdoor",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Freizeitpark in Ebbs (offiziell).",
+      "source": "https://www.hallodu.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Raritätenzoo Ebbs",
+      "category": "zoo",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Tierpark (offiziell).",
+      "source": "https://www.raritaetenzoo-ebbs.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "Fohlenhof Ebbs (Haflingerzentrum)",
+      "category": "horses",
+      "location_name": "Ebbs",
+      "lat": 47.63333,
+      "lon": 12.21667,
+      "details": "Haflingerzentrum (offiziell).",
+      "source": "https://www.haflinger-tirol.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "family_activity",
+      "name": "SLYRS Destillerie",
+      "category": "visit",
+      "location_name": "Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Besichtigung/Shop je nach Angebot (offiziell).",
+      "source": "https://slyrs.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Tourenportal Kufsteinerland (Karte/Filter)",
+      "category": "tour_portal",
+      "location_name": "Kufsteinerland",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Interaktives Tourenportal (GPX, Filter).",
+      "source": "https://maps.kufstein.com/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Sagenweg – Schattbergrunde Thiersee",
+      "category": "trail",
+      "location_name": "Thiersee",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Themenweg (offizielle Tourbeschreibung).",
+      "source": "https://www.kufstein.com/de/tours/sagenweg-schattbergrunde-thiersee.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Pendling Circuit (Rundtour)",
+      "category": "trail",
+      "location_name": "Thiersee/Kufstein",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Rundtour (Tourbeschreibung).",
+      "source": "https://www.kufstein.com/en/tours/330-pendling-circuit-1.html",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Wandern am Schliersee & Spitzingsee (Übersicht)",
+      "category": "trail_overview",
+      "location_name": "Schliersee/Spitzingsee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Übersicht Wandern (Servus Schliersee).",
+      "source": "https://servus-schliersee.de/wandern/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Tourenportal Tegernsee-Schliersee (Karte/Filter)",
+      "category": "tour_portal",
+      "location_name": "Tegernsee-Schliersee",
+      "lat": 47.737,
+      "lon": 11.859,
+      "details": "Interaktives Portal für Touren & POIs.",
+      "source": "https://maps.tegernsee-schliersee.de/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "trail",
+      "name": "Alpenverein PDF: Bergerlebnis Spitzingsee",
+      "category": "pdf",
+      "location_name": "Spitzingsee",
+      "lat": 47.671,
+      "lon": 11.911,
+      "details": "PDF mit Tourenvorschlägen (Brecherspitz/Rotwand etc.).",
+      "source": "https://www.alpenverein.de/files/broschueren/bergerlebnis-spitzing_19322.pdf",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Gesundheitsberatung Österreich (1450)",
+      "category": "healthline",
+      "location_name": "Österreich",
+      "lat": 47.58333,
+      "lon": 12.08333,
+      "details": "Offizielle Infos zur Gesundheitsnummer 1450.",
+      "source": "https://www.1450.at/",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Arztsuche Ärztekammer Tirol (Quelle)",
+      "category": "directory",
+      "location_name": "Tirol",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Arztsuche.",
+      "source": "https://www.aektirol.at/arztsuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Apothekensuche Österreichische Apothekerkammer (Quelle)",
+      "category": "directory",
+      "location_name": "Österreich",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizielle Apothekensuche (inkl. Notdienst je nach Filter).",
+      "source": "https://www.apothekerkammer.at/apothekensuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "health",
+      "name": "Apothekensuche/Notdienst Deutschland (Quelle)",
+      "category": "directory",
+      "location_name": "Deutschland",
+      "lat": 47.614,
+      "lon": 12.188,
+      "details": "Apothekensuche Deutschland (inkl. Notdienst).",
+      "source": "https://www.aponet.de/apothekensuche",
+      "tags": [
+        "within_35km"
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Kitzbühel Events (Kalender)",
+      "category": "directory",
+      "location_name": "Kitzbühel (weiterer Umkreis)",
+      "lat": 47.58333,
+      "lon": 12.16667,
+      "details": "Offizieller Eventkalender – nur nutzen, wenn explizit Kitzbühel gewünscht.",
+      "source": "https://www.kitzbuehel.com/de/events/ | https://en.wikipedia.org/wiki/Kufstein",
+      "tags": [
+        "extended"
+      ]
+    }
+  ]
+}
+{
+  "meta": {
+    "name": "concierge_weather_config",
+    "version": "2026-01-22-v1",
+    "generated_at": "2026-01-22T14:53:11.569822+00:00",
+    "timezone": "Europe/Vienna",
+    "language": "de"
+  },
+  "weather": {
+    "enabled": true,
+    "location": {
+      "label": "Thiersee (nahe Alpenlodge/Landl)",
+      "lat": 47.586,
+      "lon": 12.107
+    },
+    "provider": {
+      "name": "open-meteo",
+      "base_url": "https://api.open-meteo.com/v1/forecast",
+      "timezone_param": "Europe/Vienna"
+    },
+    "modes": {
+      "3_days": {
+        "days": 3,
+        "include_today": true,
+        "sections": [
+          "kurzuebersicht",
+          "tagesdetails",
+          "hinweise"
+        ]
+      },
+      "7_days": {
+        "days": 7,
+        "include_today": true,
+        "sections": [
+          "kurzuebersicht",
+          "trend",
+          "tagesdetails",
+          "hinweise"
+        ]
+      }
+    },
+    "api": {
+      "daily_fields": [
+        "temperature_2m_max",
+        "temperature_2m_min",
+        "precipitation_probability_max",
+        "precipitation_sum",
+        "wind_speed_10m_max",
+        "weathercode"
+      ],
+      "hourly_fields_optional": [
+        "temperature_2m",
+        "precipitation_probability",
+        "precipitation",
+        "wind_speed_10m"
+      ]
+    },
+    "rendering": {
+      "style": "ausfuehrlich",
+      "units": {
+        "temperature": "°C",
+        "wind_speed": "km/h",
+        "precipitation": "mm"
+      },
+      "format_rules": {
+        "date_format": "de-AT",
+        "show_emojis": false,
+        "max_bullets_per_day": 6
+      },
+      "text_templates_de": {
+        "header": "Wetterbericht für {location} ({range_label})",
+        "overview_line": "- {date}: {summary}. Min {tmin}°C / Max {tmax}°C · Regenrisiko bis {pop}% · Wind bis {wind} km/h",
+        "trend": "Trend: {trend_text}",
+        "notes": [
+          "Hinweis: Prognosen können sich ändern. Für aktuelle Werte bitte kurz vor dem Ausflug erneut prüfen.",
+          "Stand: {generated_at_local}"
+        ]
+      }
+    },
+    "behaviour": {
+      "if_api_fails": {
+        "message_de": "Ich kann das Live-Wetter gerade nicht abrufen. Bitte versuch es gleich nochmal.",
+        "fallback": "none"
+      },
+      "allowed_questions": [
+        "Wetter 3 Tage",
+        "Wetter 7 Tage",
+        "Wetter diese Woche",
+        "Wetter am Wochenende"
+      ]
     }
   }
 }
