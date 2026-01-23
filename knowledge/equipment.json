@@ -1,0 +1,34 @@
+{
+  "global": [],
+  "fewo1_list": [
+    "Handtücher",
+    "Bettwäsche",
+    "Seife und Toilettenpapier",
+    "TV",
+    "Kabelfernsehen",
+    "Heizung",
+    "Küche",
+    "Internet",
+    "WLAN",
+    "Föhn",
+    "Waschmaschine",
+    "Kostenlose Parkplätze vor Ort",
+    "Fitnesscenter",
+    "Balkon",
+    "Shampoo",
+    "Kleiderbügel",
+    "Haustiere erlaubt",
+    "Rauchen verboten",
+    "Grundausstattung zum Kochen",
+    "Kaffeemaschine",
+    "Gefrierschrank",
+    "Wasserkocher",
+    "Mikrowelle",
+    "Esstisch",
+    "Geschirrspülmaschine",
+    "Smart-TV"
+  ],
+  "notes_de": [
+    "Die Liste 'FeWo1' darf nur dort angewendet werden, wo sie explizit zugeordnet ist."
+  ]
+}
