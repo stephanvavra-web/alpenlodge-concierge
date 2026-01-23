@@ -23,6 +23,34 @@ const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random s
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
 const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "").toLowerCase() === "true";
+
+const envFlag = (name, defVal = false) => {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return defVal;
+  const v = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(v)) return true;
+  if (["0", "false", "no", "n", "off"].includes(v)) return false;
+  return defVal;
+};
+
+// Concierge GPT mode: allow full GPT capabilities (world knowledge + optional tools)
+const CONCIERGE_FULL_GPT = envFlag("CONCIERGE_FULL_GPT", false);
+// "No rules" mode: disables most content guardrails (NOT recommended for production).
+// IMPORTANT: This does NOT remove auth/security restrictions for booking/admin endpoints.
+const CONCIERGE_NO_RULES = envFlag("CONCIERGE_NO_RULES", false);
+const CONCIERGE_ENABLE_WEB_SEARCH = envFlag("CONCIERGE_ENABLE_WEB_SEARCH", CONCIERGE_FULL_GPT);
+const CONCIERGE_ENABLE_CODE_INTERPRETER = envFlag("CONCIERGE_ENABLE_CODE_INTERPRETER", CONCIERGE_FULL_GPT);
+const CONCIERGE_VECTOR_STORE_IDS = String(process.env.CONCIERGE_VECTOR_STORE_IDS || process.env.OPENAI_VECTOR_STORE_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// Optional web-search controls
+const WEB_SEARCH_ALLOWED_DOMAINS = String(process.env.WEB_SEARCH_ALLOWED_DOMAINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const WEB_SEARCH_EXTERNAL_WEB_ACCESS = process.env.WEB_SEARCH_EXTERNAL_WEB_ACCESS; // "true"/"false"/undefined
 const SMOOBU_BASE = "https://login.smoobu.com";
 
 // Mini-Cache (damit wir Smoobu nicht spammen)
@@ -552,6 +580,54 @@ function stripUrlsFromText(text) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+
+function extractLinksFromResponse(resp, limit = 8) {
+  const links = [];
+  const seen = new Set();
+
+  const add = (label, url) => {
+    const u = String(url || "").trim();
+    if (!u) return;
+    if (!/^https?:\/\//i.test(u)) return;
+    if (seen.has(u)) return;
+    seen.add(u);
+    links.push({ label: String(label || "").trim() || u, url: u });
+  };
+
+  const output = Array.isArray(resp?.output) ? resp.output : [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+
+    // Full sources list (if include=["web_search_call.action.sources"])
+    if (item.type === "web_search_call") {
+      const sources = item.action?.sources;
+      if (Array.isArray(sources)) {
+        for (const s of sources) {
+          if (typeof s === "string") {
+            add(s, s);
+          } else if (s && typeof s === "object") {
+            add(s.title || s.name || s.url, s.url);
+          }
+        }
+      }
+    }
+
+    // Inline citations
+    if (item.type === "message") {
+      const content = Array.isArray(item.content) ? item.content : [];
+      for (const part of content) {
+        const anns = Array.isArray(part?.annotations) ? part.annotations : [];
+        for (const a of anns) {
+          if (a && a.type === "url_citation" && a.url) add(a.title || a.url, a.url);
+        }
+      }
+    }
+  }
+
+  return links.slice(0, Math.max(0, limit || 0));
+}
+
 
 
 
@@ -2245,13 +2321,30 @@ async function conciergeChatHandler(req, res) {
     const history = Array.isArray(body.history) ? body.history : null;
 
     if (!messages) {
-      const sys = [
-        "Du bist der Alpenlodge Concierge.",
-        "Antworten kurz, freundlich und konkret.",
-        "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.",
-        "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
-        `Seite: ${page}. Locale: ${locale}.`,
-      ].join(" ");
+      const sys = (
+        CONCIERGE_NO_RULES
+          ? [
+              "Du bist der Alpenlodge Concierge.",
+              "Antworte hilfreich, freundlich und direkt.",
+              `Seite: ${page}. Locale: ${locale}.`,
+            ]
+          : (CONCIERGE_FULL_GPT
+              ? [
+                  "Du bist der Alpenlodge Concierge.",
+                  "Antworten kurz, freundlich und konkret.",
+                  "Du darfst allgemeines Weltwissen nutzen und (falls aktiviert) Tools wie Websuche verwenden, um aktuelle Fakten zu prüfen.",
+                  "Nutze interne verifizierte Daten bevorzugt. Erfinde keine überprüfbaren Fakten oder Links.",
+                  "Wenn du etwas nicht sicher bestätigen kannst, sag das offen und biete an, es zu prüfen.",
+                  `Seite: ${page}. Locale: ${locale}.`,
+                ]
+              : [
+                  "Du bist der Alpenlodge Concierge.",
+                  "Antworten kurz, freundlich und konkret.",
+                  "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.",
+                  "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
+                  `Seite: ${page}. Locale: ${locale}.`,
+                ])
+      ).join(" ");
 
       const safeHist = (history || [])
         .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
@@ -2315,7 +2408,7 @@ async function conciergeChatHandler(req, res) {
     const radiusKmRaw = body.radiusKm ?? body.radius ?? body.distanceKm ?? body.distance;
     const radiusKm = Number.isFinite(Number(radiusKmRaw)) ? Number(radiusKmRaw) : 35;
     const cat = detectCategory(lastUser);
-    if (cat) {
+    if (cat && !CONCIERGE_FULL_GPT && !CONCIERGE_NO_RULES) {
       const k = loadKnowledge();
       const mustAnswerFromKnowledge = Boolean(cat);
       if (mustAnswerFromKnowledge) {
@@ -2338,42 +2431,109 @@ async function conciergeChatHandler(req, res) {
     const model = process.env.OPENAI_MODEL || "gpt-5.2";
     const fallbackModel = process.env.OPENAI_MODEL_FALLBACK || "gpt-4.1-mini";
 
-    // Harden system instructions: never invent recommendations.
+    // System instructions
     const baseSys = messages.find(m => m.role === "system")?.content || "";
-    const hardRules = [
-      "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
-      "Wenn du etwas nicht sicher weißt, sag das ehrlich und biete passende Links an (falls vorhanden).",
-      "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus dem verifizierten Knowledge (inkl. Links). Keine Rückfragen.",
-    ].join(" ");
+
+    // In "no rules" mode we skip the additional hard guardrails completely.
+    const hardRules = CONCIERGE_NO_RULES
+      ? ""
+      : (CONCIERGE_FULL_GPT
+          ? [
+              "WICHTIG: Du darfst allgemeines Weltwissen nutzen, aber erfinde keine überprüfbaren Fakten (z. B. Öffnungszeiten, Preise, Telefonnummern, Events). Nutze – falls verfügbar – Websuche für aktuelle/örtliche Fakten.",
+              "Erfinde niemals Links/URLs. Wenn du Websuche nutzt, stütze dich nur auf die Tool-Quellen.",
+              "Wenn du unsicher bist, sag das offen.",
+            ]
+          : [
+              "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
+              "Wenn du etwas nicht sicher weißt, sag das ehrlich und biete passende Links an (falls vorhanden).",
+              "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus dem verifizierten Knowledge (inkl. Links). Keine Rückfragen.",
+            ]
+        ).join(" ");
+
     const instructions = `${hardRules} ${baseSys}`.trim();
     const input = messages
       .filter(m => m.role !== "system")
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n");
 
+    // Optional: enable built-in tools when desired (web_search, file_search, code_interpreter).
+    const tools = [];
+    const include = [];
+
+    if (CONCIERGE_ENABLE_WEB_SEARCH) {
+      const webTool = { type: "web_search" };
+      if (WEB_SEARCH_ALLOWED_DOMAINS.length) {
+        webTool.filters = { allowed_domains: WEB_SEARCH_ALLOWED_DOMAINS };
+      }
+      if (typeof WEB_SEARCH_EXTERNAL_WEB_ACCESS === "string" && WEB_SEARCH_EXTERNAL_WEB_ACCESS !== "") {
+        webTool.external_web_access = envFlag("WEB_SEARCH_EXTERNAL_WEB_ACCESS", true);
+      }
+      tools.push(webTool);
+      include.push("web_search_call.action.sources");
+    }
+
+    if (Array.isArray(CONCIERGE_VECTOR_STORE_IDS) && CONCIERGE_VECTOR_STORE_IDS.length) {
+      tools.push({
+        type: "file_search",
+        vector_store_ids: CONCIERGE_VECTOR_STORE_IDS,
+        max_num_results: 6,
+      });
+      // If you want raw retrieval results in the response object, enable:
+      // include.push("file_search_call.results");
+    }
+
+    if (CONCIERGE_ENABLE_CODE_INTERPRETER) {
+      tools.push({
+        type: "code_interpreter",
+        container: { type: "auto" },
+      });
+      // include.push("code_interpreter_call.outputs");
+    }
+
+    const reqBase = { instructions, input, temperature: 0.4 };
+    if (tools.length) {
+      reqBase.tools = tools;
+      reqBase.tool_choice = "auto";
+      if (include.length) reqBase.include = include;
+    }
+
     let response;
     try {
-      response = await openai.responses.create({
-        model,
-        instructions,
-        input,
-        temperature: 0.4,
-      });
+      response = await openai.responses.create({ model, ...reqBase });
     } catch (e) {
       // automatic fallback
       if (fallbackModel && fallbackModel !== model) {
-        response = await openai.responses.create({
-          model: fallbackModel,
-          instructions,
-          input,
-          temperature: 0.4,
-        });
+        try {
+          response = await openai.responses.create({ model: fallbackModel, ...reqBase });
+        } catch (e2) {
+          // If fallback model doesn't support hosted tools, retry without tools.
+          const msg2 = String(e2?.message || "");
+          if (reqBase.tools && /(web_search|file_search|code_interpreter|tool)/i.test(msg2)) {
+            response = await openai.responses.create({
+              model: fallbackModel,
+              instructions,
+              input,
+              temperature: 0.4,
+            });
+          } else {
+            throw e2;
+          }
+        }
       } else {
         throw e;
       }
     }
 
-    res.json({ reply: response?.output_text || "" });
+    const rawReply = response?.output_text || "";
+    const links = extractLinksFromResponse(response, 8);
+
+    // In FULL GPT mode: we used to strip URLs from the text to avoid hallucinated links in the UI.
+    // If CONCIERGE_NO_RULES is enabled, we keep the raw text (including any URLs).
+    const reply = (CONCIERGE_FULL_GPT && !CONCIERGE_NO_RULES)
+      ? stripUrlsFromText(rawReply)
+      : rawReply;
+
+    res.json({ reply, links, source: "openai" });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
     const status = err?.status || err?.response?.status;
