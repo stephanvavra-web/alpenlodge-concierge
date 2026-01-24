@@ -556,6 +556,64 @@ function stripUrlsFromText(text) {
 
 
 
+// ---------------- Concierge rule: Direct booking only ----------------
+// Rule: never mention or recommend third-party booking platforms.
+const THIRD_PARTY_BOOKING_RE = /(booking\.com|airbnb\.com|\bairbnb\b|\bbooking\.com\b|\bexpedia\b|hotels\.com|\bagoda\b|\bvrbo\b|homeaway|\btrivago\b|\btripadvisor\b|\bkayak\b|\bskyscanner\b)/i;
+
+function containsThirdPartyBooking(text) {
+  return THIRD_PARTY_BOOKING_RE.test(String(text || ""));
+}
+
+function enforceDirectBookingOnly(payload, locale) {
+  if (!payload || typeof payload !== "object") return payload;
+  const isEn = String(locale || "").toLowerCase().startsWith("en");
+  const bookingUrl = "/buchen/";
+
+  const scan = [];
+  if (typeof payload.reply === "string") scan.push(payload.reply);
+  if (typeof payload.answer === "string") scan.push(payload.answer);
+  if (Array.isArray(payload.links)) scan.push(...payload.links.map(l => `${l?.label || ""} ${l?.url || ""}`));
+  if (Array.isArray(payload.actions)) scan.push(...payload.actions.map(a => `${a?.label || ""} ${a?.message || ""} ${a?.url || ""}`));
+  const hit = scan.some(containsThirdPartyBooking);
+
+  // Always filter blocked URLs in links/actions (even if reply is clean)
+  const filterLink = (u) => !containsThirdPartyBooking(String(u || ""));
+  if (Array.isArray(payload.links)) {
+    payload.links = payload.links.filter(l => filterLink(l?.url) && filterLink(l?.label));
+  }
+  if (Array.isArray(payload.actions)) {
+    payload.actions = payload.actions.filter(a => {
+      if (a?.type === "link") return filterLink(a?.url) && filterLink(a?.label);
+      return filterLink(a?.label) && filterLink(a?.message);
+    });
+  }
+
+  if (!hit) return payload;
+
+  // Replace the reply with a compliant message.
+  const reply = isEn
+    ? "Bookings are only possible directly with Alpenlodge (online booking or via our team). Use the booking button."
+    : "Buchungen sind ausschließlich direkt über die Alpenlodge möglich (Online-Buchung oder über unser Team). Nutze bitte den **Buchen**-Button.";
+
+  payload.reply = reply;
+
+  // Ensure booking action/link exists.
+  payload.actions = Array.isArray(payload.actions) ? payload.actions : [];
+  const bookLabel = isEn ? "Book" : "Buchen";
+  if (!payload.actions.some(a => a && a.type === "link" && String(a.url || "") === bookingUrl)) {
+    payload.actions.unshift({ type: "link", label: bookLabel, url: bookingUrl, kind: "primary" });
+  }
+
+  payload.links = Array.isArray(payload.links) ? payload.links : [];
+  const linkLabel = isEn ? "Alpenlodge Online Booking" : "Alpenlodge Online-Buchung";
+  if (!payload.links.some(l => l && String(l.url || "") === bookingUrl)) {
+    payload.links.unshift({ label: linkLabel, url: bookingUrl });
+  }
+
+  return payload;
+}
+
+
 // ---------------- Booking / Availability / Prices (Smoobu) ----------------
 
 function isBookingIntent(userText) {
@@ -1547,37 +1605,7 @@ app.get("/chat/snapshot", (req, res) => {
   res.redirect(302, "/api/chat/snapshot" + q);
 });
 
-
-// ---------------- Units API (frontend booking wizard) ----------------
-// Returns the curated mapping from /data/units.json (website <-> Smoobu IDs).
-// Safe to expose (no secrets, no PII).
-app.get("/api/units", (req, res) => {
-  const units = loadUnits();
-  const category = typeof req.query.category === "string" ? req.query.category.trim() : "";
-  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
-  let out = units;
-
-  if (category) {
-    const catFold = foldText(category);
-    out = out.filter((u) => foldText(u?.category || "") === catFold);
-  }
-  if (q) {
-    const qFold = foldText(q);
-    out = out.filter((u) => foldText(u?.name || "").includes(qFold));
-  }
-
-  res.json({ ok: true, count: out.length, units: out });
-});
-
-app.get("/api/units/:apartmentId", (req, res) => {
-  const id = Number(req.params.apartmentId);
-  if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "bad_id" });
-  const unit = findUnitByApartmentId(id);
-  if (!unit) return res.status(404).json({ ok: false, error: "not_found" });
-  res.json({ ok: true, unit });
-});
-
-// Optional webhook trigger \(Smoobu can POST events\)
+// Optional webhook trigger (Smoobu can POST events)
 app.post("/api/smoobu/webhook", (req, res) => {
   scheduleChatSnapshotRefresh("smoobu_webhook");
   res.json({ ok: true });
@@ -2278,7 +2306,7 @@ async function conciergeChatHandler(req, res) {
       const sys = [
         "Du bist der Alpenlodge Concierge.",
         "Antworten kurz, freundlich und konkret.",
-        "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.",
+        "REGEL: Buchungen nur direkt über Alpenlodge (Online-Buchung /buchen/ oder über unser Team). Keine Erwähnung oder Empfehlung von Drittanbieter-Buchungsplattformen. Wenn der User danach fragt: antworte ohne den Plattform-Namen zu wiederholen (einfach: 'Buchung nur direkt bei uns').",
         "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
         `Seite: ${page}. Locale: ${locale}.`,
       ].join(" ");
@@ -2290,13 +2318,15 @@ async function conciergeChatHandler(req, res) {
       messages = [{ role: "system", content: sys }, ...safeHist, { role: "user", content: userMessage || "Hallo" }];
     }
 
+    const send = (payload) => res.json(enforceDirectBookingOnly(payload, locale));
+
     // Quick weather path (keine OpenAI-Kosten, wenn eindeutig)
     const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content || "";
 
     // If user replies with a number after a list (e.g. "2"), resolve it from session memory.
     const sel = parseListSelection(lastUser);
     if (sel && !sessionId) {
-      return res.json({ reply: "Bitte frage zuerst nach einer Liste (z. B. **Skigebiete 35 km**) und antworte danach mit der Nummer (z. B. **2**).", source: "system" });
+      return send({ reply: "Bitte frage zuerst nach einer Liste (z. B. **Skigebiete 35 km**) und antworte danach mit der Nummer (z. B. **2**).", source: "system" });
     }
     if (sel && sessionId) {
       const sess = getSession(sessionId);
@@ -2315,7 +2345,7 @@ async function conciergeChatHandler(req, res) {
           const links = [];
           const u = pickFirstHttpUrl(it.url, it.sourceUrl);
           if (u) links.push({ label: it.name, url: u });
-          return res.json({ reply: replyLines.join("\n"), links, source: "knowledge" });
+          return send({ reply: replyLines.join("\n"), links, source: "knowledge" });
         }
       }
     }
@@ -2326,7 +2356,7 @@ async function conciergeChatHandler(req, res) {
     if (CONCIERGE_ENABLE_BOOKING_CHAT) {
       try {
         const booking = await maybeHandleBookingChat(lastUser, sessionId, locale);
-        if (booking) return res.json(booking);
+        if (booking) return send(booking);
       } catch (err) {
         console.error("❌ Booking flow error:", err);
         const isEn = String(locale || "").toLowerCase().startsWith("en");
@@ -2350,16 +2380,16 @@ async function conciergeChatHandler(req, res) {
       const mustAnswerFromKnowledge = Boolean(cat);
       if (mustAnswerFromKnowledge) {
         const r = buildCategoryReply(cat, k, radiusKm, sessionId);
-        if (r?.reply) return res.json({ reply: r.reply, links: r.links || [], source: "knowledge" });
+        if (r?.reply) return send({ reply: r.reply, links: r.links || [], source: "knowledge" });
       }
     }
 
     if (isWeatherQuestion(lastUser)) {
       try {
         const w = await getWeatherTomorrow();
-        return res.json({ reply: weatherText(w) });
+        return send({ reply: weatherText(w) });
       } catch (e) {
-        return res.json({ reply: locale.startsWith("en") ? "I can't fetch live weather right now. Please try again." : "Ich kann das Live-Wetter gerade nicht abrufen. Bitte versuch es gleich nochmal." });
+        return send({ reply: locale.startsWith("en") ? "I can't fetch live weather right now. Please try again." : "Ich kann das Live-Wetter gerade nicht abrufen. Bitte versuch es gleich nochmal." });
       }
     }
 
@@ -2371,6 +2401,7 @@ async function conciergeChatHandler(req, res) {
     // Harden system instructions: never invent recommendations.
     const baseSys = messages.find(m => m.role === "system")?.content || "";
     const hardRules = [
+      "REGEL: Nenne niemals Drittanbieter-Buchungsplattformen und biete keine alternativen Buchungswege an. Buchung ausschließlich direkt über Alpenlodge (/buchen/ oder über unser Team). Wenn der User nach einer Plattform fragt: antworte ohne den Plattform-Namen zu wiederholen.",
       "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
       "Wenn du etwas nicht sicher weißt, sag das ehrlich und biete passende Links an (falls vorhanden).",
       "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus dem verifizierten Knowledge (inkl. Links). Keine Rückfragen.",
@@ -2403,7 +2434,7 @@ async function conciergeChatHandler(req, res) {
       }
     }
 
-    res.json({ reply: response?.output_text || "" });
+    send({ reply: response?.output_text || "" });
   } catch (err) {
     console.error("❌ Concierge error:", err?.stack || err);
     const status = err?.status || err?.response?.status;
