@@ -22,8 +22,10 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // set in Render for write/ad
 const BOOKING_TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET || ""; // random secret to sign short-lived booking offer tokens
 const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // default: 70 = Homepage (see Smoobu Channels list)
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
-const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "true").toLowerCase() !== "false";
-const CONCIERGE_STRICT_KNOWLEDGE = String(process.env.CONCIERGE_STRICT_KNOWLEDGE || "").toLowerCase() === "true";
+const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "").toLowerCase() === "true";
+const CONCIERGE_KNOWLEDGE_MODE = String(process.env.CONCIERGE_KNOWLEDGE_MODE || "context").toLowerCase(); // off | context | force
+const OPENAI_TEMPERATURE = Number(process.env.OPENAI_TEMPERATURE || "0.8");
+
 const SMOOBU_BASE = "https://login.smoobu.com";
 
 // Mini-Cache (damit wir Smoobu nicht spammen)
@@ -238,6 +240,149 @@ function normalizeKnowledge(raw) {
 
   return out;
 }
+
+// ---------------- Knowledge bundle (optional, no hard rules) ----------------
+// Besides knowledge/verified.json, we can load additional structured knowledge files (property, apartments, equipment, weather, …)
+// and feed them to GPT as CONTEXT (not as strict rules).
+const KNOWLEDGE_DIR = path.join(__dirname, "knowledge");
+const KNOWLEDGE_MANIFEST_FILE = process.env.KNOWLEDGE_MANIFEST_FILE || path.join(KNOWLEDGE_DIR, "manifest.json");
+let _knowledgeBundleCache = { key: "", value: null };
+
+function statSafe(p) {
+  try { return fs.statSync(p); } catch { return null; }
+}
+function readJsonSafe(p) {
+  try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; }
+}
+function resolveKnowledgePath(p) {
+  if (!p) return null;
+  if (path.isAbsolute(p)) return p;
+  // allow manifest entries like "knowledge/property.json"
+  return path.join(__dirname, p);
+}
+
+function loadKnowledgeBundle() {
+  // Determine file list
+  const manifest = readJsonSafe(KNOWLEDGE_MANIFEST_FILE);
+  let files = Array.isArray(manifest?.files) ? manifest.files : [];
+  if (!files.length) {
+    files = [
+      "knowledge/property.json",
+      "knowledge/apartments.json",
+      "knowledge/equipment.json",
+      "knowledge/weather.json",
+      "knowledge/sources.json",
+      "knowledge/verified.json",
+      "knowledge/kufsteinerland_verified.json",
+    ];
+  }
+
+  const resolved = files.map(resolveKnowledgePath).filter(Boolean);
+  const keyParts = [];
+  const out = { manifest };
+
+  for (const p of resolved) {
+    const st = statSafe(p);
+    if (!st) continue;
+    keyParts.push(`${p}:${st.mtimeMs}`);
+  }
+  const key = keyParts.join("|");
+  if (_knowledgeBundleCache.value && _knowledgeBundleCache.key === key) return _knowledgeBundleCache.value;
+
+  for (const p of resolved) {
+    const st = statSafe(p);
+    if (!st) continue;
+    const json = readJsonSafe(p);
+    if (!json) continue;
+    const name = path.basename(p, path.extname(p)); // property, apartments, …
+    out[name] = json;
+  }
+
+  _knowledgeBundleCache = { key, value: out };
+  return out;
+}
+
+function buildKnowledgeContextForGpt(userText, bundle) {
+  const t = String(userText || "").toLowerCase();
+  const parts = [];
+
+  // Property / highlights
+  const prop = bundle?.property;
+  if (prop && typeof prop === "object") {
+    const name = prop.name || "Alpenlodge";
+    const place = prop?.location?.place ? `${prop.location.place}` : "";
+    const region = prop?.location?.region ? `${prop.location.region}` : "";
+    const loc = [place, region].filter(Boolean).join(", ");
+    const bullets = Array.isArray(prop.verified_highlights_bullets_de) ? prop.verified_highlights_bullets_de.slice(0, 10) : [];
+    parts.push(
+      `OBJEKT: ${name}${loc ? " – " + loc : ""}\n` +
+      (bullets.length ? ("HIGHLIGHTS:\n- " + bullets.join("\n- ")) : "")
+    );
+  }
+
+  // Units overview (names/categories) – helps GPT map what guests mean
+  try {
+    const units = loadUnits();
+    if (Array.isArray(units) && units.length) {
+      const top = units.slice(0, 20).map(u => `- ${u.name} (${u.category || "Unterkunft"}, max ${u.max_persons || "?"})`).join("\n");
+      parts.push(`UNTERKÜNFTE (Auswahl):\n${top}`);
+    }
+  } catch {}
+
+  // Apartments (internal apartment_id, tours, max persons)
+  const ap = bundle?.apartments?.apartments;
+  if (Array.isArray(ap) && ap.length) {
+    // if user explicitly mentions an apartment number, include details for that one
+    let wanted = null;
+    const numMatch = t.match(/\b(apartment|fewo|ferienwohnung)\s*#?\s*(\d{1,3})\b/);
+    if (numMatch) wanted = String(numMatch[2]);
+    const one = wanted ? ap.find(a => String(a.apartment_id) === wanted) : null;
+
+    if (one) {
+      const feats = Array.isArray(one.features_list) ? one.features_list.slice(0, 12) : [];
+      parts.push(
+        `APARTMENT ${one.apartment_id} (${one.floor || ""}, max ${one.max_persons || "?"})\n` +
+        (one.tour_url ? `Tour: ${one.tour_url}\n` : "") +
+        (feats.length ? ("Features:\n- " + feats.join("\n- ")) : "")
+      );
+    } else {
+      const list = ap.slice(0, 20).map(a => `- ${a.apartment_id}: ${a.floor || ""}, max ${a.max_persons || "?"}${a.tour_url ? " (Tour: " + a.tour_url + ")" : ""}`).join("\n");
+      parts.push(`APARTMENTS (Übersicht):\n${list}`);
+    }
+  }
+
+  // Equipment (when asked)
+  const eq = bundle?.equipment;
+  if (eq && typeof eq === "object") {
+    const wantsEq = /ausstattung|inklusive|handtuch|bettw(a|ä)sche|wlan|parkpl(a|ä)tz|haustier|hund|sauna|fitness/.test(t);
+    if (wantsEq) {
+      const list = Array.isArray(eq.fewo1_list) ? eq.fewo1_list.slice(0, 60) : [];
+      if (list.length) parts.push(`AUSSTATTUNG (Auszug):\n- ${list.join("\n- ")}`);
+    }
+  }
+
+  // Category hints from verified knowledge (if present) – as context, not forced output
+  try {
+    const cat = detectCategory(userText);
+    if (cat) {
+      const k = normalizeKnowledge(loadKnowledge());
+      const arr = Array.isArray(k?.categories?.[cat]) ? k.categories[cat] : [];
+      if (arr.length) {
+        const top = arr.slice(0, 8).map((it, i) => {
+          const dist = typeof it.approx_km_road === "number" ? ` (~${it.approx_km_road.toFixed(1)} km)` : "";
+          return `- ${it.name || "Item"}${dist}${it.url ? " — " + it.url : ""}`;
+        }).join("\n");
+        parts.push(`KONTEXT-LISTE (${cat}):\n${top}`);
+      }
+    }
+  } catch {}
+
+  // Hard limit (tokens)
+  const joined = parts.filter(Boolean).join("\n\n").trim();
+  return joined.length > 6000 ? joined.slice(0, 6000) + "\n…(gekürzt)" : joined;
+}
+
+
 
 
 // ---------------- Units mapping (Website <-> Smoobu IDs) ----------------
@@ -564,23 +709,14 @@ function isBookingIntent(userText) {
   if (!t) return false;
 
   // Strong signals
-  const hasStrong = /(verfuegb|verfug|verfugbar|availability|available|frei|buch|booking|reserve)/i.test(t);
-  if (hasStrong) return true;
+  if (/(verfuegb|verfug|verfugbar|availability|available|frei|buch|booking|reserve)/i.test(t)) return true;
 
   // Price queries for stays
-  const hasPrice = /(preis|preise|kosten|rate|rates|angebot|angebote|quote)/i.test(t);
-  if (hasPrice) return true;
+  if (/(preis|preise|kosten|rate|rates|angebot|angebote|quote)/i.test(t)) return true;
 
-  // Softer signals: category/stay words + a date range
-  // (Avoids hijacking normal chat just because a date appears.)
-  const hasCategory = /(premium|suite|suiten|apartment|apartments)/i.test(t);
-  const hasStayWords = /(nacht|naechte|nächte|aufenthalt|stay|nights|days|tage)/i.test(t);
-
-  const hasIsoDate = /(20\d{2}-\d{1,2}-\d{1,2})/.test(t);
-  const hasDotDate = /(\d{1,2})[\.\/-](\d{1,2})(?:[\.\/-](\d{2,4}))?/.test(t);
-  const hasDate = hasIsoDate || hasDotDate;
-
-  if (hasDate && (hasCategory || hasStayWords)) return true;
+  // Date patterns usually indicate a stay query
+  if (/(20\d{2}-\d{2}-\d{2})/.test(t)) return true;
+  if (/(\d{1,2})[\.\/-](\d{1,2})[\.\/-](\d{2,4})/.test(t)) return true;
 
   return false;
 }
@@ -2257,10 +2393,9 @@ async function conciergeChatHandler(req, res) {
     if (!messages) {
       const sys = [
         "Du bist der Alpenlodge Concierge.",
-        "Antworte hilfreich, freundlich und konkret. Du darfst auch ausführlich sein, wenn es dem Gast hilft.",
-        "Du darfst alle Fragen frei beantworten (Allgemeines, Aktivitäten, Anreise, Unterkunft, Buchung).",
-        "Wenn du Links nennst, gib bitte die vollständige URL (https://...).",
-        "Wenn du dir bei Fakten unsicher bist, sag das ehrlich.",
+        "Antworten kurz, freundlich und konkret.",
+        "Du hilfst bei Fragen rund um Alpenlodge, Region, Aktivitäten und auf Wunsch auch beim Buchen.",
+        "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
         `Seite: ${page}. Locale: ${locale}.`,
       ].join(" ");
 
@@ -2321,11 +2456,12 @@ async function conciergeChatHandler(req, res) {
       }
     }
 
-// Optional strict knowledge mode (disabled by default).
-    // Enable via env: CONCIERGE_STRICT_KNOWLEDGE=true
-    if (CONCIERGE_STRICT_KNOWLEDGE) {
-      // Knowledge-first: lists/recommendations come from knowledge/verified.json
-      // The widget can optionally send { radiusKm: 35 }.
+// Knowledge (optional)
+    // Mode:
+    // - "force": return lists/recommendations directly from knowledge/verified.json (strict, no OpenAI cost)
+    // - "context": inject knowledge into GPT as CONTEXT only (no hard rules)
+    // - "off": don't load/inject knowledge
+    if (CONCIERGE_KNOWLEDGE_MODE === "force") {
       const radiusKmRaw = body.radiusKm ?? body.radius ?? body.distanceKm ?? body.distance;
       const radiusKm = Number.isFinite(Number(radiusKmRaw)) ? Number(radiusKmRaw) : 35;
       const cat = detectCategory(lastUser);
@@ -2349,16 +2485,26 @@ async function conciergeChatHandler(req, res) {
     // Defaults per requirement: high-end model with cheap fallback.
     const model = process.env.OPENAI_MODEL || "gpt-5.2";
     const fallbackModel = process.env.OPENAI_MODEL_FALLBACK || "gpt-4.1-mini";
-    const tempRaw = Number(process.env.OPENAI_TEMPERATURE || "0.7");
-    const temperature = Number.isFinite(tempRaw) ? Math.max(0, Math.min(2, tempRaw)) : 0.7;
 
-
+    // // Knowledge as CONTEXT (optional) – no hard rules
     const baseSys = messages.find(m => m.role === "system")?.content || "";
     const instructions = baseSys.trim();
-    const input = messages
+
+    let kbContext = "";
+    if (CONCIERGE_KNOWLEDGE_MODE !== "off") {
+      const bundle = loadKnowledgeBundle();
+      kbContext = buildKnowledgeContextForGpt(lastUser, bundle);
+    }
+
+    const convo = messages
       .filter(m => m.role !== "system")
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n");
+
+    const input = [kbContext ? `KONTEXT (interne Infos, optional):\n${kbContext}` : "", convo]
+      .filter(Boolean)
+      .join("\n\n");
+
 
     let response;
     try {
@@ -2366,7 +2512,7 @@ async function conciergeChatHandler(req, res) {
         model,
         instructions,
         input,
-        temperature,
+        temperature: OPENAI_TEMPERATURE,
       });
     } catch (e) {
       // automatic fallback
@@ -2375,7 +2521,7 @@ async function conciergeChatHandler(req, res) {
           model: fallbackModel,
           instructions,
           input,
-          temperature,
+          temperature: OPENAI_TEMPERATURE,
         });
       } else {
         throw e;

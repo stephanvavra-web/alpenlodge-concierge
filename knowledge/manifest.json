@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-01-22T11:57:38.795158+00:00",
+  "files": [
+    "knowledge/rules.json",
+    "knowledge/sources.json",
+    "knowledge/property.json",
+    "knowledge/apartments.json",
+    "knowledge/equipment.json",
+    "knowledge/manifest.json"
+  ],
+  "dynamic_source": "chat.alpenlodge.info"
+}

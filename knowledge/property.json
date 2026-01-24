@@ -1,0 +1,25 @@
+{
+  "property_id": "alpenlodge-landl",
+  "name": "Haus Alpenlodge",
+  "location": {
+    "place": "Landl bei Thiersee",
+    "region": "Kufsteinerland"
+  },
+  "verified_highlights_bullets_de": [
+    "Wir bieten familienfreundliche Ferienwohnungen für bis zu 7 Personen mitten im Thierseetal",
+    "Unser Apartmenthaus ist bestens für Familien mit Kindern, Paare, Alleinreisende oder Gruppen geeignet",
+    "Im Erdgeschoß finden die Kinder einen großen Indoorspielplatz mit sehr vielen Spielmöglichkeiten",
+    "Vor unserem Haus können sich die Kids so richtig auf dem tollen Außenspielplatz austoben",
+    "Bei uns sind Hunde willkommen - wir freuen uns auf euren vierbeinigen Liebling",
+    "Wir bieten eine Ladestation für E-Autos",
+    "Der geräumige Saal ist perfekt für gemütliches Zusammensitzen, oder Veranstaltungen geeignet",
+    "Unser Fitnessraum bietet verschiedene Sportmöglichkeiten, ein Solarium und eine Infrarotsaune",
+    "Badehose einpacken & los: wir liegen nur wenige Meter vom schönen Naturbadesee entfernt",
+    "Gratis KufsteinerlandCard : Kostenlose Erlebnisse, attraktive Ermäßigungen und Spezialangebote"
+  ],
+  "max_persons_apartment": 7,
+  "kufsteinerlandcard": {
+    "included": true,
+    "link": "https://www.kufstein.com/de/service-info/card.html"
+  }
+}
