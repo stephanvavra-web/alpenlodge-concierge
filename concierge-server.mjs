@@ -843,47 +843,312 @@ function bookingActionsForSelectedUnit(selected, locale, { askGuests = false } =
   const isEn = String(locale || "").toLowerCase().startsWith("en");
   const actions = [];
   if (askGuests) actions.push(...bookingGuestCountActions(locale));
+
+  // Optional: unit details page (always open in new tab via frontend)
+  if (selected?.details_url) {
+    actions.push({
+      type: "link",
+      label: isEn ? "View details" : "Details ansehen",
+      url: selected.details_url,
+    });
+  }
+
+  // Primary: book directly in chat (wizard)
+  if (!askGuests) {
+    actions.push({
+      type: "postback",
+      label: isEn ? "Book now" : "Jetzt buchen",
+      message: "__BOOK_CHECKOUT__",
+      kind: "primary",
+    });
+  }
+
+  // Secondary fallback: open booking tool (still Alpenlodge)
   if (selected?.book_url) {
     actions.push({
       type: "link",
-      label: isEn ? "Book this" : "Diese Unterkunft buchen",
+      label: isEn ? "Open booking tool" : "Buchungstool öffnen",
       url: selected.book_url,
-      kind: "primary",
     });
   } else {
-    actions.push({ type: "link", label: isEn ? "Open booking tool" : "Buchungstool öffnen", url: "/buchen/", kind: "primary" });
+    actions.push({ type: "link", label: isEn ? "Open booking tool" : "Buchungstool öffnen", url: "/buchen/" });
   }
-  actions.push({ type: "postback", label: isEn ? "Back to list" : "Zurück zur Liste", message: isEn ? "Back" : "Zurück" });
+
+  actions.push({ type: "postback", label: isEn ? "Back" : "Zurück", message: "__BOOK_BACK__" });
   actions.push({ type: "postback", label: isEn ? "Other dates" : "Andere Daten", message: isEn ? "Other dates" : "Andere Daten" });
   actions.push(...bookingCategoryActions(locale));
   return actions;
+}
+
+// ---------------- Booking chat: "book inside concierge" helpers ----------------
+const BOOK_CMD = {
+  CHECKOUT: "__BOOK_CHECKOUT__",
+  CONFIRM: "__BOOK_CONFIRM__",
+  CANCEL: "__BOOK_CANCEL__",
+  BACK: "__BOOK_BACK__",
+  EDIT: "__BOOK_EDIT__",
+};
+
+function bookingActionsForGuestStep(locale, { canBack = true } = {}) {
+  const isEn = String(locale || "").toLowerCase().startsWith("en");
+  const actions = [];
+  if (canBack) actions.push({ type: "postback", label: isEn ? "Back" : "Zurück", message: BOOK_CMD.BACK });
+  actions.push({ type: "postback", label: isEn ? "Cancel" : "Abbrechen", message: BOOK_CMD.CANCEL });
+  actions.push({ type: "postback", label: isEn ? "Other dates" : "Andere Daten", message: isEn ? "Other dates" : "Andere Daten" });
+  return actions;
+}
+
+function bookingActionsForCountry(locale) {
+  const isEn = String(locale || "").toLowerCase().startsWith("en");
+  return isEn
+    ? [
+        { type: "postback", label: "Austria", message: "Austria", kind: "primary" },
+        { type: "postback", label: "Germany", message: "Germany" },
+        { type: "postback", label: "Switzerland", message: "Switzerland" },
+        { type: "postback", label: "Italy", message: "Italy" },
+        { type: "postback", label: "Other…", message: "Other" },
+      ]
+    : [
+        { type: "postback", label: "Österreich", message: "Österreich", kind: "primary" },
+        { type: "postback", label: "Deutschland", message: "Deutschland" },
+        { type: "postback", label: "Schweiz", message: "Schweiz" },
+        { type: "postback", label: "Italien", message: "Italien" },
+        { type: "postback", label: "Anderes…", message: "Anderes" },
+      ];
+}
+
+function bookingActionsForReview(locale) {
+  const isEn = String(locale || "").toLowerCase().startsWith("en");
+  return [
+    { type: "postback", label: isEn ? "Confirm booking" : "Buchung bestätigen", message: BOOK_CMD.CONFIRM, kind: "primary" },
+    { type: "postback", label: isEn ? "Edit details" : "Details ändern", message: BOOK_CMD.EDIT },
+    { type: "postback", label: isEn ? "Cancel" : "Abbrechen", message: BOOK_CMD.CANCEL },
+  ];
+}
+
+function maskEmail(email) {
+  const e = String(email || "").trim();
+  const m = e.match(/^([^@]{1,3})([^@]*)(@.+)$/);
+  if (!m) return e;
+  return `${m[1]}***${m[3]}`;
+}
+
+function maskPhone(phone) {
+  const p = String(phone || "").replace(/[^\d+]/g, "");
+  if (p.length <= 4) return p;
+  return `${p.slice(0, 2)}***${p.slice(-2)}`;
+}
+
+function extractEmail(text) {
+  const t = String(text || "");
+  const m = t.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return m ? m[0] : null;
+}
+
+function extractPhone(text) {
+  const t = String(text || "");
+  const m = t.match(/(\+?\d[\d\s().-]{6,}\d)/);
+  if (!m) return null;
+  return String(m[1]).trim();
+}
+
+function extractFullName(text) {
+  const t0 = String(text || "").trim();
+  if (!t0) return null;
+
+  // remove email + phone fragments to avoid confusing splits
+  const t = t0
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig, " ")
+    .replace(/(\+?\d[\d\s().-]{6,}\d)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Common "Name: ..." patterns
+  const m = t.match(/(?:name|voller\s*name|full\s*name)\s*[:=]\s*(.+)$/i);
+  const name = (m ? m[1] : t).trim();
+
+  const parts = name.split(" ").filter(Boolean);
+  if (parts.length < 2) return null;
+  const firstName = parts.shift();
+  const lastName = parts.join(" ");
+  return { firstName, lastName };
+}
+
+function extractPostalCity(text) {
+  const t = String(text || "").trim().replace(/\s+/g, " ");
+  const m = t.match(/(\d{4,6})\s+(.+)/);
+  if (!m) return null;
+  return { postalCode: m[1], location: m[2].trim() };
+}
+
+function extractCountry(text, locale) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const isEn = String(locale || "").toLowerCase().startsWith("en");
+  const v = foldText(t);
+
+  if (!isEn) {
+    if (v === "oesterreich" || v === "osterreich" || v === "austria" || v === "at") return "Austria";
+    if (v === "deutschland" || v === "germany" || v === "de") return "Germany";
+    if (v === "schweiz" || v === "switzerland" || v === "ch") return "Switzerland";
+    if (v === "italien" || v === "italy" || v === "it") return "Italy";
+  } else {
+    if (v === "austria" || v === "at" || v === "osterreich" || v === "oesterreich") return "Austria";
+    if (v === "germany" || v === "deutschland" || v === "de") return "Germany";
+    if (v === "switzerland" || v === "schweiz" || v === "ch") return "Switzerland";
+    if (v === "italy" || v === "italien" || v === "it") return "Italy";
+  }
+
+  // accept free text (minimum length)
+  if (t.length >= 3 && t.length <= 56) return t;
+  return null;
+}
+
+async function bookReservationFromSession(s, locale) {
+  // Booking safety switch
+  if (!process.env.BOOKING_TOKEN_SECRET) {
+    const err = new Error("booking_disabled");
+    err.status = 500;
+    err.details = { error: "booking_disabled", hint: "Set BOOKING_TOKEN_SECRET in Render to enable bookings." };
+    throw err;
+  }
+
+  const booking = s?.booking || {};
+  const arrival = booking.arrival;
+  const departure = booking.departure;
+  const guests = Number(booking.guests || 0) || 1;
+  const apartmentId = Number(booking.selectedApartmentId || 0);
+
+  if (!arrival || !departure || !Number.isFinite(apartmentId) || apartmentId <= 0) {
+    const err = new Error("missing_booking_context");
+    err.status = 400;
+    err.details = { error: "missing_booking_context", hint: "Select a unit and dates first." };
+    throw err;
+  }
+
+  const guest = booking.guest || {};
+  const address = guest.address || {};
+  const isEn = String(locale || "").toLowerCase().startsWith("en");
+
+  // Ensure required guest fields (as per Smoobu docs)
+  const missing = [];
+  if (!guest.firstName) missing.push("firstName");
+  if (!guest.lastName) missing.push("lastName");
+  if (!guest.email) missing.push("email");
+  if (!guest.phone) missing.push("phone");
+  if (!address.street) missing.push("address.street");
+  if (!address.postalCode) missing.push("address.postalCode");
+  if (!address.location) missing.push("address.location");
+  if (!guest.country) missing.push("country");
+
+  if (missing.length) {
+    const err = new Error("missing_guest_fields");
+    err.status = 400;
+    err.details = { error: "missing_guest_fields", missing };
+    throw err;
+  }
+
+  // Re-check availability (prevents: "overview shows available but booking fails")
+  const offers = await computeOfferPayloads(arrival, departure, guests);
+  const offer = Array.isArray(offers) ? offers.find((o) => Number(o.apartmentId) === apartmentId) : null;
+
+  if (!offer) {
+    const err = new Error("apartment_not_available");
+    err.status = 409;
+    err.details = { error: "apartment_not_available", hint: "The unit is no longer available for that date range." };
+    throw err;
+  }
+
+  const reservationPayload = {
+    arrivalDate: offer.arrivalDate,
+    departureDate: offer.departureDate,
+    apartmentId: offer.apartmentId,
+    channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
+
+    firstName: guest.firstName,
+    lastName: guest.lastName,
+    email: guest.email,
+    phone: guest.phone,
+    address: {
+      street: address.street,
+      postalCode: address.postalCode,
+      location: address.location,
+    },
+    country: guest.country,
+    language: isEn ? "en" : "de",
+
+    adults: Number.isFinite(booking.adults) ? Number(booking.adults) : guests,
+    children: Number.isFinite(booking.children) ? Number(booking.children) : 0,
+    price: offer.price,
+
+    notice: "Direct booking via Alpenlodge Concierge",
+  };
+
+  const result = await smoobuFetch("/api/reservations", {
+    method: "POST",
+    jsonBody: reservationPayload,
+  });
+
+  scheduleChatSnapshotRefresh("booking");
+
+  return {
+    ok: true,
+    id: result?.id ?? result?.reservationId ?? null,
+    offerUsed: offer,
+    result,
+  };
 }
 
 async function maybeHandleBookingChat(lastUser, sessionId, locale) {
   const t = String(lastUser || "").trim();
   if (!t) return null;
 
-  const isIntent = isBookingIntent(t);
+  const isCmd = Object.values(BOOK_CMD).includes(t);
+  const isIntent = isCmd || isBookingIntent(t);
+
   const sess0 = sessionId ? (getSession(sessionId) || { ts: Date.now() }) : null;
   const hasContext = Boolean(sess0?.booking?.inProgress);
 
   if (!isIntent && !hasContext) return null;
 
   const isEn = String(locale || "").toLowerCase().startsWith("en");
+  const ui = { mode: "booking", fullscreen: true };
 
   // Create or reuse session (if sessionId missing, we still do a one-shot answer)
   const s = sessionId ? (sess0 || { ts: Date.now() }) : { ts: Date.now() };
   s.booking = s.booking || {};
   s.booking.inProgress = true;
+  s.booking.step = s.booking.step || "browse";
+  s.booking.guest = s.booking.guest || {};
+  s.booking.guest.address = s.booking.guest.address || {};
 
   // Basic navigation commands
   const tFold = foldText(t);
   const wantsReset = /^(reset|neu|von vorne|start over|other dates|andere daten|andere termine)/i.test(tFold);
-  const wantsBack = /^(zuruck|zurueck|back|liste|list|uebersicht|overview)$/i.test(tFold);
+  const wantsBackText = /^(zuruck|zurueck|back|liste|list|uebersicht|overview)$/i.test(tFold);
+
+  const wantsCancel = t === BOOK_CMD.CANCEL || /^(cancel|abbrechen|stopp|stop)\b/i.test(tFold);
+  const wantsBack = t === BOOK_CMD.BACK || wantsBackText;
+  const wantsCheckout = t === BOOK_CMD.CHECKOUT || /^(checkout|book now|jetzt buchen|weiter zur buchung|weiter|buchen)$/i.test(tFold);
+  const wantsConfirm = t === BOOK_CMD.CONFIRM;
+  const wantsEdit = t === BOOK_CMD.EDIT;
+
+  if (wantsCancel) {
+    const keepCat = s.booking.categoryFilter || null;
+    s.booking = { inProgress: false, categoryFilter: keepCat };
+    s.ts = Date.now();
+    if (sessionId) sessionState.set(sessionId, s);
+    return {
+      reply: isEn ? "Okay — booking cancelled. If you want, choose new dates." : "Okay — Buchung abgebrochen. Wenn du willst: neue Daten wählen.",
+      actions: bookingActionsForNeedDates(locale),
+      source: "smoobu",
+      ui,
+    };
+  }
 
   if (wantsReset) {
     const keepCat = s.booking.categoryFilter || null;
-    s.booking = { inProgress: true, categoryFilter: keepCat };
+    s.booking = { inProgress: true, categoryFilter: keepCat, step: "browse", guest: { address: {} } };
     s.ts = Date.now();
     if (sessionId) sessionState.set(sessionId, s);
     return {
@@ -892,15 +1157,23 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
         : "Nenne mir bitte **Anreise** und **Abreise** (z. B. **1.2.26 – 5.2.26**).",
       actions: bookingActionsForNeedDates(locale),
       source: "smoobu",
+      ui,
     };
   }
 
-  if (wantsBack) {
+  // If the user taps "Back" while in guest checkout flow: return to unit view (keep selection)
+  if (wantsBack && s.booking.step !== "browse") {
+    s.booking.step = "browse";
+    s.ts = Date.now();
+    if (sessionId) sessionState.set(sessionId, s);
+    // continue → show selected unit again (if dates exist)
+  } else if (wantsBack && s.booking.step === "browse") {
+    // Back from selected unit to list
     s.booking.unitFilter = null;
     s.booking.selectedApartmentId = null;
     s.ts = Date.now();
     if (sessionId) sessionState.set(sessionId, s);
-    // fall through → show list (if dates exist)
+    // continue → show list (if dates exist)
   }
 
   // If user selects a number after we showed booking options, map it to that option (session only)
@@ -913,36 +1186,336 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
     }
   }
 
-  // Update booking state from user text
-  const range = extractDateRange(t);
-  if (range.arrival) s.booking.arrival = range.arrival;
-  if (range.departure) s.booking.departure = range.departure;
+  // Update booking state from user text (only when we're browsing; during checkout we parse guest data separately)
+  if (s.booking.step === "browse") {
+    const range = extractDateRange(t);
+    if (range.arrival) s.booking.arrival = range.arrival;
+    if (range.departure) s.booking.departure = range.departure;
 
-  const g = extractGuestCount(t);
-  if (g) s.booking.guests = g;
+    const g = extractGuestCount(t);
+    if (g) s.booking.guests = g;
 
-  // Category filter (optional)
-  const cat = detectUnitCategoryFilter(t);
-  if (cat) s.booking.categoryFilter = cat;
+    // Category filter (optional)
+    const cat = detectUnitCategoryFilter(t);
+    if (cat) s.booking.categoryFilter = cat;
 
-  if (/(^|\s)(alle\s+kategorien|all\s+categories|ohne\s+filter|no\s+filter|egal)(\s|$)/i.test(normText(t))) {
-    s.booking.categoryFilter = null;
+    if (/(^|\s)(alle\s+kategorien|all\s+categories|ohne\s+filter|no\s+filter|egal)(\s|$)/i.test(normText(t))) {
+      s.booking.categoryFilter = null;
+    }
+
+    // Unit mention by name (works even without session)
+    const unitMention = findUnitMentionInText(t);
+    if (unitMention) {
+      s.booking.unitFilter = unitMention.name;
+      s.booking.selectedApartmentId = unitMention.smoobu_id;
+    }
   }
 
-  // Unit mention by name (works even without session)
-  const unitMention = findUnitMentionInText(t);
-  if (unitMention) {
-    s.booking.unitFilter = unitMention.name;
-    s.booking.selectedApartmentId = unitMention.smoobu_id;
-  }
-
-  // Persist session
+  // Persist session updates
   s.ts = Date.now();
   if (sessionId) sessionState.set(sessionId, s);
 
   const arrival = s.booking.arrival || null;
   const departure = s.booking.departure || null;
 
+  // ---------------- Checkout wizard inside chat ----------------
+  const step = s.booking.step || "browse";
+
+  // Start checkout when user taps "Book now"
+  if (step === "browse" && wantsCheckout) {
+    if (!arrival || !departure) {
+      return {
+        reply: isEn
+          ? "Sure — tell me your **arrival** and **departure** date first."
+          : "Gerne — nenne mir bitte zuerst **Anreise** und **Abreise**.",
+        actions: bookingActionsForNeedDates(locale),
+        source: "smoobu",
+        ui,
+      };
+    }
+
+    const guestsNum = Number(s.booking.guests || 0);
+    if (!Number.isFinite(guestsNum) || guestsNum <= 0) {
+      return {
+        reply: isEn ? "How many guests are you?" : "Wie viele Personen seid ihr?",
+        actions: bookingGuestCountActions(locale),
+        source: "smoobu",
+        ui,
+      };
+    }
+
+    if (!s.booking.selectedApartmentId) {
+      return {
+        reply: isEn ? "Please pick a unit first (1, 2, 3…)." : "Bitte wähle zuerst eine Unterkunft (1, 2, 3…).",
+        actions: bookingActionsForNeedDates(locale),
+        source: "smoobu",
+        ui,
+      };
+    }
+
+    s.booking.step = "guest_name";
+    s.ts = Date.now();
+    if (sessionId) sessionState.set(sessionId, s);
+
+    return {
+      reply: isEn
+        ? "Great — to book, I need the **main guest’s full name** (first + last name)."
+        : "Super — für die Buchung brauche ich den **vollständigen Namen** des Hauptgasts (Vor- & Nachname).",
+      actions: bookingActionsForGuestStep(locale, { canBack: true }),
+      source: "smoobu",
+      ui,
+    };
+  }
+
+  // Guest data collection / review / confirm
+  if (step !== "browse") {
+    // allow editing by simply sending corrected data (email/phone/address)
+    const guest = s.booking.guest || (s.booking.guest = { address: {} });
+    guest.address = guest.address || {};
+    const addr = guest.address;
+
+    // Helper: update guest fields opportunistically from free text
+    const maybePatchGuestFromText = (txt) => {
+      const email = extractEmail(txt);
+      if (email) guest.email = email;
+
+      const phone = extractPhone(txt);
+      if (phone) guest.phone = phone;
+
+      const name = extractFullName(txt);
+      if (name && !guest.firstName && !guest.lastName) {
+        guest.firstName = name.firstName;
+        guest.lastName = name.lastName;
+      }
+
+      // street line (if it contains a number, it's usually a street+houseNo)
+      if (!addr.street) {
+        const sLine = String(txt || "").trim();
+        if (sLine.length >= 4 && /\d/.test(sLine) && !extractEmail(sLine)) addr.street = sLine;
+      }
+
+      const pc = extractPostalCity(txt);
+      if (pc) {
+        addr.postalCode = addr.postalCode || pc.postalCode;
+        addr.location = addr.location || pc.location;
+      }
+
+      const country = extractCountry(txt, locale);
+      if (country && !guest.country) guest.country = country;
+    };
+
+    if (wantsEdit && step === "review") {
+      return {
+        reply: isEn
+          ? "Sure — just send the corrected data (e.g. `Email: ...`, `Phone: ...`, `Street: ...`, `6020 Innsbruck`, `Country: ...`)."
+          : "Gern — sende mir einfach die korrigierten Daten (z. B. `E-Mail: ...`, `Telefon: ...`, `Straße: ...`, `6020 Innsbruck`, `Land: ...`).",
+        actions: bookingActionsForGuestStep(locale, { canBack: true }),
+        source: "smoobu",
+        ui,
+      };
+    }
+
+    // Confirmation step
+    if (wantsConfirm && step === "review") {
+      try {
+        const out = await bookReservationFromSession(s, locale);
+        // Clear booking flow after successful booking
+        const bookedId = out?.id ? String(out.id) : "";
+        s.booking = { inProgress: false };
+        s.ts = Date.now();
+        if (sessionId) sessionState.set(sessionId, s);
+
+        return {
+          reply: isEn
+            ? `✅ Booked! Your reservation was created successfully.${bookedId ? `\nReservation ID: **${bookedId}**` : ""}`
+            : `✅ Gebucht! Deine Reservierung wurde erfolgreich angelegt.${bookedId ? `\nReservierungs‑ID: **${bookedId}**` : ""}`,
+          actions: [
+            { type: "postback", label: isEn ? "Book another stay" : "Weiter buchen", message: isEn ? "Other dates" : "Andere Daten", kind: "primary" },
+            { type: "postback", label: isEn ? "Back to chat" : "Zurück zum Chat", message: isEn ? "Hello" : "Hallo" },
+            { type: "link", label: isEn ? "Open booking tool" : "Buchungstool öffnen", url: "/buchen/" },
+          ],
+          source: "smoobu",
+          ui: { mode: "booking", fullscreen: false },
+        };
+      } catch (err) {
+        const status = err?.status || 500;
+        const details = err?.details || null;
+
+        // If availability changed: send user back to list
+        if (status === 409 && details?.error === "apartment_not_available") {
+          s.booking.step = "browse";
+          s.booking.selectedApartmentId = null;
+          s.booking.unitFilter = null;
+          s.ts = Date.now();
+          if (sessionId) sessionState.set(sessionId, s);
+
+          return {
+            reply: isEn
+              ? "⚠️ Sorry — that unit is no longer available for your dates. Here are the current options:"
+              : "⚠️ Sorry — diese Unterkunft ist für deine Daten leider nicht mehr verfügbar. Hier sind die aktuellen Optionen:",
+            actions: bookingActionsForNeedDates(locale),
+            source: "smoobu",
+            ui,
+          };
+        }
+
+        return {
+          reply: isEn
+            ? "Sorry — I couldn't complete the booking. Please double‑check your details or try again."
+            : "Sorry — ich konnte die Buchung nicht abschließen. Bitte prüfe deine Angaben oder versuch es nochmal.",
+          error: "booking_error",
+          details,
+          actions: bookingActionsForGuestStep(locale, { canBack: true }),
+          source: "smoobu",
+          ui,
+        };
+      }
+    }
+
+    // Try to parse details from free text for convenience
+    if (t && !isCmd) maybePatchGuestFromText(t);
+
+    // Step machine (ask for the next missing required field)
+    if (!guest.firstName || !guest.lastName) {
+      const name = extractFullName(t);
+      if (name) {
+        guest.firstName = name.firstName;
+        guest.lastName = name.lastName;
+      }
+      s.booking.step = "guest_name";
+      s.ts = Date.now();
+      if (sessionId) sessionState.set(sessionId, s);
+      if (!guest.firstName || !guest.lastName) {
+        return {
+          reply: isEn
+            ? "Please send the **full name** of the main guest (first + last name)."
+            : "Bitte sende mir den **vollständigen Namen** des Hauptgasts (Vor- & Nachname).",
+          actions: bookingActionsForGuestStep(locale, { canBack: true }),
+          source: "smoobu",
+          ui,
+        };
+      }
+    }
+
+    if (!guest.email) {
+      const email = extractEmail(t);
+      if (email) guest.email = email;
+      s.booking.step = "guest_email";
+      s.ts = Date.now();
+      if (sessionId) sessionState.set(sessionId, s);
+      if (!guest.email) {
+        return {
+          reply: isEn ? "What is the **email address** for the booking?" : "Welche **E‑Mail‑Adresse** soll ich für die Buchung verwenden?",
+          actions: bookingActionsForGuestStep(locale, { canBack: true }),
+          source: "smoobu",
+          ui,
+        };
+      }
+    }
+
+    if (!guest.phone) {
+      const phone = extractPhone(t);
+      if (phone) guest.phone = phone;
+      s.booking.step = "guest_phone";
+      s.ts = Date.now();
+      if (sessionId) sessionState.set(sessionId, s);
+      if (!guest.phone) {
+        return {
+          reply: isEn ? "And the **phone number** (incl. country code if possible)?" : "Und die **Telefonnummer** (gern mit Ländervorwahl)?",
+          actions: bookingActionsForGuestStep(locale, { canBack: true }),
+          source: "smoobu",
+          ui,
+        };
+      }
+    }
+
+    if (!addr.street) {
+      const street = String(t || "").trim();
+      if (street && street.length >= 4 && !extractEmail(street)) addr.street = street;
+      s.booking.step = "guest_street";
+      s.ts = Date.now();
+      if (sessionId) sessionState.set(sessionId, s);
+      if (!addr.street) {
+        return {
+          reply: isEn ? "Street + house number?" : "Straße + Hausnummer?",
+          actions: bookingActionsForGuestStep(locale, { canBack: true }),
+          source: "smoobu",
+          ui,
+        };
+      }
+    }
+
+    if (!addr.postalCode || !addr.location) {
+      const pc = extractPostalCity(t);
+      if (pc) {
+        addr.postalCode = pc.postalCode;
+        addr.location = pc.location;
+      }
+      s.booking.step = "guest_postal";
+      s.ts = Date.now();
+      if (sessionId) sessionState.set(sessionId, s);
+      if (!addr.postalCode || !addr.location) {
+        return {
+          reply: isEn ? "Postal code + city (e.g. `6020 Innsbruck`)?" : "PLZ + Ort (z. B. `6020 Innsbruck`)?",
+          actions: bookingActionsForGuestStep(locale, { canBack: true }),
+          source: "smoobu",
+          ui,
+        };
+      }
+    }
+
+    if (!guest.country) {
+      const c = extractCountry(t, locale);
+      if (c) guest.country = c;
+
+      s.booking.step = "guest_country";
+      s.ts = Date.now();
+      if (sessionId) sessionState.set(sessionId, s);
+
+      if (!guest.country) {
+        return {
+          reply: isEn ? "Country?" : "Land?",
+          actions: [...bookingActionsForCountry(locale), ...bookingActionsForGuestStep(locale, { canBack: true })],
+          source: "smoobu",
+          ui,
+        };
+      }
+    }
+
+    // All required guest fields present → review
+    s.booking.step = "review";
+    s.ts = Date.now();
+    if (sessionId) sessionState.set(sessionId, s);
+
+    const guestsNum = Number(s.booking.guests || 0) || 1;
+    const unit = findUnitByApartmentId(Number(s.booking.selectedApartmentId)) || null;
+    const unitName = unit?.name || `Apartment ${s.booking.selectedApartmentId}`;
+    const n = nightsBetween(arrival, departure);
+    const emailMasked = maskEmail(guest.email);
+    const phoneMasked = maskPhone(guest.phone);
+
+    const lines = [];
+    lines.push(isEn ? "**Review your booking**" : "**Buchung prüfen**");
+    lines.push(`• ${isEn ? "Unit" : "Unterkunft"}: **${unitName}**`);
+    lines.push(isEn
+      ? `• Dates: **${arrival} → ${departure}**${n ? ` (${n} nights)` : ""}`
+      : `• Zeitraum: **${isoToDE(arrival)} – ${isoToDE(departure)}**${n ? ` (${n} Nächte)` : ""}`);
+    lines.push(isEn ? `• Guests: **${guestsNum}**` : `• Personen: **${guestsNum}**`);
+    lines.push(`• ${isEn ? "Name" : "Name"}: **${guest.firstName} ${guest.lastName}**`);
+    lines.push(`• Email: **${emailMasked}**`);
+    lines.push(`• ${isEn ? "Phone" : "Telefon"}: **${phoneMasked}**`);
+    lines.push(`• ${isEn ? "Address" : "Adresse"}: **${addr.street}, ${addr.postalCode} ${addr.location}, ${guest.country}**`);
+    lines.push(isEn ? "Confirm to create the reservation now." : "Bestätige, um die Reservierung jetzt verbindlich anzulegen.");
+
+    return {
+      reply: lines.join("\n"),
+      actions: bookingActionsForReview(locale),
+      source: "smoobu",
+      ui,
+    };
+  }
+
+  // ---------------- Browse mode (availability + prices) ----------------
   if (!arrival || !departure) {
     const catLine = s.booking.categoryFilter
       ? (isEn ? `Category: **${s.booking.categoryFilter}**\n` : `Kategorie: **${s.booking.categoryFilter}**\n`)
@@ -953,6 +1526,7 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
         : "Nenne mir bitte **Anreise** und **Abreise** (z. B. **1.2.26 – 5.2.26**)."),
       actions: bookingActionsForNeedDates(locale),
       source: "smoobu",
+      ui,
     };
   }
 
@@ -998,7 +1572,7 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
     lines.push(`**${selected.name}**${meta ? ` (${meta})` : ""}`);
     lines.push(isEn
       ? `Dates: **${arrival}** → **${departure}**${n ? ` (${n} nights)` : ""}`
-      : `Zeitraum: **${isoToDE(arrival)}** – **${isoToDE(departure)}**${n ? ` (${n} Nächte)` : ""}`);
+      : `Zeitraum: **${isoToDE(arrival)}** – **${isoToDE(departure)}**${n ? ` (${n} Nächte)` : "" }`);
     lines.push(guestsKnown
       ? (isEn ? `Price for **${pricingGuests} guests**: **${money}**` : `Preis für **${pricingGuests} Personen**: **${money}**`)
       : (isEn ? `Base price (1 guest): **${money}**` : `Basispreis (1 Person): **${money}**`));
@@ -1012,6 +1586,7 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
       reply: lines.join("\n"),
       actions: bookingActionsForSelectedUnit(selected, locale, { askGuests: !guestsKnown }),
       source: "smoobu",
+      ui,
     };
   }
 
@@ -1033,6 +1608,7 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
         : "Leider ist für diesen Zeitraum nichts frei. Versuch bitte andere Daten."),
       actions: bookingActionsForNeedDates(locale),
       source: "smoobu",
+      ui,
     };
   }
 
@@ -1056,6 +1632,7 @@ async function maybeHandleBookingChat(lastUser, sessionId, locale) {
     reply: lines.join("\n"),
     actions: bookingActionsForResults(opts, locale),
     source: "smoobu",
+    ui,
   };
 }
 
@@ -1365,8 +1942,6 @@ app.use(cors());
 // Stripe webhooks require raw body; do NOT run express.json() on that route.
 app.use("/api/payment/stripe/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
-app.use("/assets", express.static(path.join(__dirname, "public/assets")));
-
 
 // ✅ Only ENV key (Render → Environment Variables)
 const apiKey = process.env.OPENAI_API_KEY;
@@ -2247,10 +2822,14 @@ async function conciergeChatHandler(req, res) {
     const history = Array.isArray(body.history) ? body.history : null;
 
     if (!messages) {
-      const sys = [
-        "Du bist der Alpenlodge Concierge.",
-        "Antworten kurz, freundlich und konkret.",
-        "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.",
+      const bookingLine = CONCIERGE_ENABLE_BOOKING_CHAT
+      ? "Buchung ist möglich: Verfügbarkeit/Preise prüfen und (wenn gewünscht) direkt im Chat buchen. Nenne **keine** anderen Buchungsplattformen – Buchung nur über Alpenlodge."
+      : "Keine Buchung/Preise/Verfügbarkeit im Chat – nur Auskunft und Empfehlungen aus verifizierten Daten.";
+
+    const sys = [
+      "Du bist der Alpenlodge Concierge.",
+      "Antworten kurz, freundlich und konkret.",
+      bookingLine,
         "Wenn du Daten nicht hast, sag das ehrlich und biete an, es zu prüfen.",
         `Seite: ${page}. Locale: ${locale}.`,
       ].join(" ");
@@ -2346,6 +2925,7 @@ async function conciergeChatHandler(req, res) {
       "WICHTIG: Erfinde niemals Orte, Restaurants, Events oder Dienstleistungen.",
       "Wenn du etwas nicht sicher weißt, sag das ehrlich und biete passende Links an (falls vorhanden).",
       "Wenn der User nach Empfehlungen/Listen fragt: liefere sofort eine klare Liste aus dem verifizierten Knowledge (inkl. Links). Keine Rückfragen.",
+      "Wenn es ums Buchen geht: nenne **keine** anderen Buchungsplattformen. Buchung ausschließlich über Alpenlodge (www.alpenlodge.info bzw. /buchen/).",
     ].join(" ");
     const instructions = `${hardRules} ${baseSys}`.trim();
     const input = messages
