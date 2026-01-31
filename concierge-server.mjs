@@ -1615,6 +1615,7 @@ app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
 
     const body = req.body || {};
     const offerToken = typeof body.offerToken === "string" ? body.offerToken.trim() : "";
+    const discountCode = typeof body.discountCode === "string" ? body.discountCode.trim() : "";
     if (!offerToken) return res.status(400).json({ ok: false, error: "missing_offerToken" });
 
     let offer;
@@ -1882,7 +1883,7 @@ app.post("/api/booking/availability", rateLimit, smoobuAvailabilityHandler);
 
 // Compute fresh offer payloads directly from Smoobu (server-side).
 // This lets /concierge/book work without the client having to pass an offerToken.
-async function computeOfferPayloads(arrivalDate, departureDate, guests) {
+async function computeOfferPayloads(arrivalDate, departureDate, guests, discountCode) {
   let aIso = toISODate(arrivalDate);
   let dIso = toISODate(departureDate);
   if (!aIso || !dIso) {
@@ -1923,6 +1924,7 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests) {
     arrivalDate: aIso,
     departureDate: dIso,
     guests: Number(guests),
+    ...(discountCode ? { discountCode: String(discountCode).trim() } : {}),
   };
 
   const avail = await smoobuFetch("/booking/checkApartmentAvailability", {
@@ -1958,6 +1960,7 @@ async function publicBookHandler(req, res) {
     // Option A (recommended): client passes offerToken from /concierge/availability (signed + short-lived).
     // Option B: client passes (arrivalDate, departureDate, guests/adults+children, apartmentId optional) and we fetch a fresh offer from Smoobu.
     const offerToken = typeof body.offerToken === "string" ? body.offerToken.trim() : "";
+    const discountCode = typeof body.discountCode === "string" ? body.discountCode.trim() : "";
 
     let offer = null;
 
@@ -1982,7 +1985,7 @@ async function publicBookHandler(req, res) {
         });
       }
 
-      const offerPayloads = await computeOfferPayloads(arrivalDate, departureDate, guests);
+      const offerPayloads = await computeOfferPayloads(arrivalDate, departureDate, guests, discountCode);
       if (!offerPayloads.length) {
         return res.status(409).json({ error: "no_availability" });
       }
@@ -2158,7 +2161,7 @@ async function publicBookHandler(req, res) {
       price: offer.price,
 
       // Internal note (shows up for you, not the guest)
-      notice,
+      notice: (discountCode ? `${notice || ''} [DiscountCode:${String(discountCode).trim()}]`.trim() : notice),
     };
 
     // Create booking in Smoobu
