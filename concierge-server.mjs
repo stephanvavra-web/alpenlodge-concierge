@@ -1388,13 +1388,6 @@ const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const STRIPE_CURRENCY = (process.env.STRIPE_CURRENCY || "eur").toLowerCase();
 
-// ---------------- Discounts / Coupons ----------------
-// Allowlist coupons (server-side only). Frontend may pass discountCode, but backend decides validity.
-// NOTE: For now only a single campaign coupon is supported.
-const COUPON_LAST2026ALP_CODE = "last2026alp";
-const COUPON_LAST2026ALP_NAME = "Lastminute";
-const COUPON_LAST2026ALP_PCT  = 20; // % off base accommodation price (not extras)
-
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const DB_SSL =
   String(process.env.DB_SSL || "").toLowerCase() === "true" ||
@@ -1427,12 +1420,6 @@ async function dbInit() {
       last_error JSONB
     );
   `);
-
-  // Backward-compatible schema upgrades (safe if columns already exist)
-  await db.query(`ALTER TABLE booking_payments ADD COLUMN IF NOT EXISTS discount_code TEXT;`);
-  await db.query(`ALTER TABLE booking_payments ADD COLUMN IF NOT EXISTS discount_name TEXT;`);
-  await db.query(`ALTER TABLE booking_payments ADD COLUMN IF NOT EXISTS discount_amount_cents INTEGER;`);
-  await db.query(`ALTER TABLE booking_payments ADD COLUMN IF NOT EXISTS amount_before_discount_cents INTEGER;`);
   await db.query(`
     CREATE TABLE IF NOT EXISTS stripe_events (
       event_id TEXT PRIMARY KEY,
@@ -1629,6 +1616,7 @@ app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
     const body = req.body || {};
     const offerToken = typeof body.offerToken === "string" ? body.offerToken.trim() : "";
     const discountCode = typeof body.discountCode === "string" ? body.discountCode.trim() : "";
+    const src = typeof body.src === "string" ? body.src.trim() : "";
     if (!offerToken) return res.status(400).json({ ok: false, error: "missing_offerToken" });
 
     let offer;
@@ -1640,28 +1628,27 @@ app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
 
     const basePrice = Number(offer.price || 0);
     const nights = nightsBetweenIso(offer.arrivalDate, offer.departureDate);
-
-    // Extras (e.g. dogs)
     const dogs = Number(extras.dogs || 0);
     const dogPricePerNight = Number(extras.dogPricePerNight || 10);
     const dogExtra = (Number.isFinite(dogs) && dogs > 0 && Number.isFinite(dogPricePerNight) && dogPricePerNight > 0 && nights > 0)
       ? (dogs * dogPricePerNight * nights)
       : 0;
 
-    // Coupon (server decides validity; only allowlisted codes apply)
-    const normCode = String(discountCode || "").trim().toLowerCase();
-    const hasCoupon = normCode === COUPON_LAST2026ALP_CODE;
-    const discountPct = hasCoupon ? COUPON_LAST2026ALP_PCT : 0;
-    const discountName = hasCoupon ? COUPON_LAST2026ALP_NAME : "";
-    const basePriceCents = cents(Math.max(0, basePrice));
-    const dogExtraCents = cents(Math.max(0, dogExtra));
+const ALLOW_COUPON = "last2026alp";
+    const COUPON_PCT = 20;
 
-    // Discount applies only to the base accommodation price (not extras)
-    const discountAmountCents = discountPct > 0 ? Math.round(basePriceCents * (discountPct / 100)) : 0;
+    // Coupon is only valid when coming from the Lastminute landing page
+    const isLastminuteSource = src.includes("/lpLMde/") || src.endsWith("/lpLMde/index.html") || src === "/lpLMde/index.html";
 
-    const amountBeforeDiscountCents = Math.max(0, basePriceCents + dogExtraCents);
-    const amountCents = Math.max(0, amountBeforeDiscountCents - discountAmountCents);
+    const couponOk = (discountCode && discountCode === ALLOW_COUPON && isLastminuteSource);
 
+    // Discount applies only to the accommodation base price (not extras like dogs)
+    const discountBase = couponOk ? Math.max(0, basePrice) : 0;
+    const discountAmount = couponOk ? (discountBase * (COUPON_PCT / 100)) : 0;
+    const discountAmountCents = couponOk ? cents(discountAmount) : 0;
+
+    const total = Math.max(0, basePrice + dogExtra - (discountAmountCents ? (discountAmountCents/100) : 0));
+    const amountCents = cents(total);
     if (!amountCents) return res.status(400).json({ ok: false, error: "invalid_amount" });
 
     const paymentId = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
@@ -1670,15 +1657,12 @@ app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
       amount: amountCents,
       currency: STRIPE_CURRENCY,
       automatic_payment_methods: { enabled: true },
-      metadata: {
-        booking_payment_id: paymentId,
-        ...(hasCoupon ? { discount_code: COUPON_LAST2026ALP_CODE, discount_name: COUPON_LAST2026ALP_NAME, discount_pct: String(COUPON_LAST2026ALP_PCT) } : {})
-      }
+      metadata: { booking_payment_id: paymentId, discount_code: (couponOk ? discountCode : ''), discount_pct: (couponOk ? String(COUPON_PCT) : ''), src: (src || '') }
     });
 
     await db.query(
-      "INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extras_json,discount_code,discount_name,discount_amount_cents,amount_before_discount_cents) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken, "discount": hasCoupon ? { code: COUPON_LAST2026ALP_CODE, name: COUPON_LAST2026ALP_NAME, pct: COUPON_LAST2026ALP_PCT, amountCents: discountAmountCents, amountBeforeDiscountCents } : null }), JSON.stringify(guest), JSON.stringify(extras), hasCoupon ? COUPON_LAST2026ALP_CODE : null, hasCoupon ? COUPON_LAST2026ALP_NAME : null, discountAmountCents || null, amountBeforeDiscountCents || null]
+      "INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extras_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken,"discount": (couponOk ? {code:discountCode,pct:COUPON_PCT,amountCents:discountAmountCents,src:src} : null)}), JSON.stringify(guest), JSON.stringify(extras)]
     );
 
     return res.json({ ok:true, paymentId, paymentIntentId:intent.id, clientSecret:intent.client_secret, amountCents, currency:STRIPE_CURRENCY });
@@ -1742,8 +1726,6 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
       const bookBody = {
         offerToken: offerWrap.offerToken,
-        ...(offerWrap?.discount?.code ? { discountCode: offerWrap.discount.code } : {}),
-        ...(offerWrap?.discount?.amountCents ? { discountAmountCents: offerWrap.discount.amountCents } : {}),
         firstName: guest.firstName || "",
         lastName: guest.lastName || "",
         email: guest.email || "",
@@ -1993,7 +1975,7 @@ async function publicBookHandler(req, res) {
     // Option B: client passes (arrivalDate, departureDate, guests/adults+children, apartmentId optional) and we fetch a fresh offer from Smoobu.
     const offerToken = typeof body.offerToken === "string" ? body.offerToken.trim() : "";
     const discountCode = typeof body.discountCode === "string" ? body.discountCode.trim() : "";
-    const discountAmountCents = Number(body.discountAmountCents || 0);
+    const src = typeof body.src === "string" ? body.src.trim() : "";
 
     let offer = null;
 
@@ -2242,32 +2224,7 @@ async function publicBookHandler(req, res) {
             jsonBody: pePayload,
           });
           extrasApplied.addedPriceElements.push({ type: 'dog', amount, response: peRes });
-    
-      // Coupon discount as negative price element (best effort)
-      try {
-        const norm = String(discountCode || "").trim().toLowerCase();
-        if (bookingId && norm === COUPON_LAST2026ALP_CODE && Number.isFinite(discountAmountCents) && discountAmountCents > 0) {
-          const amount = -Math.round(discountAmountCents) / 100;
-          const pePayload = {
-            name: `${COUPON_LAST2026ALP_NAME} Rabatt (${COUPON_LAST2026ALP_CODE})`,
-            amount,
-            tax: 0,
-            calculationType: 0,
-          };
-          try {
-            const peRes = await smoobuFetch(`/api/reservations/${encodeURIComponent(bookingId)}/price-elements`, {
-              method: 'POST',
-              jsonBody: pePayload,
-            });
-            extrasApplied.addedPriceElements.push({ type: 'discount', amount, response: peRes });
-          } catch (e) {
-            extrasApplied.errors.push({ type: 'discount', details: e?.details || { message: e?.message || String(e) } });
-          }
-        }
-      } catch (e) {
-        extrasApplied.errors.push({ type: 'discount', details: { message: e?.message || String(e) } });
-      }
-    } catch (e) {
+        } catch (e) {
           extrasApplied.errors.push({ type: 'dog', details: e?.details || { message: e?.message || String(e) } });
         }
       }
