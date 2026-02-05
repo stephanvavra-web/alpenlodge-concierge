@@ -1726,7 +1726,7 @@ if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
 // ---- Post-payment calendar entry (Smoobu) — EXACT per API reference:
 // POST /api/reservations with fields: apartmentId, arrival, departure, firstName, lastName, email, phone, channelId, adults, children, price.
 // (We do NOT modify the existing booking flow; this is only used after payment.)
-async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
+async function createReservationAfterPaymentExact({ offer, guest: guest, extras: extras, discountCode }) {
   const firstName = String(guest?.firstName || "").trim();
   const lastName  = String(guest?.lastName  || "").trim();
   const email     = String(guest?.email     || "").trim();
@@ -1798,9 +1798,15 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
       await client.query("UPDATE booking_payments SET status=$2 WHERE id=$1", [paymentId, "paid"]);
 
-      const offerWrap = JSON.parse(row.offer_json);
-      const guest = JSON.parse(row.guest_json);
-      const extras = JSON.parse(row.extras_json);
+      const offerWrap = row.offer_json;
+      const guest = row.guest_json;
+      const extras = row.extras_json;
+
+      // Normalize JSONB values (object) vs string (older pg configs)
+      const offerWrapObj = (offerWrap && typeof offerWrap === 'object') ? offerWrap : (typeof offerWrap === 'string' ? (offerWrap ? JSON.parse(offerWrap) : null) : null);
+      const guestObj = (guest && typeof guest === 'object') ? guest : (typeof guest === 'string' ? (guest ? JSON.parse(guest) : null) : null);
+      const extrasObj = (extras && typeof extras === 'object') ? extras : (typeof extras === 'string' ? (extras ? JSON.parse(extras) : null) : null);
+
 
       const bookBody = {
         offerToken: offerWrap.offerToken,
@@ -1826,7 +1832,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
       try {
         const offer = (offerWrap && offerWrap.offer) ? offerWrap.offer : verifyOffer(offerWrap.offerToken);
-        outJson = await createReservationAfterPaymentExact({ offer, guestObj, extras: extrasObj, discountCode });
+        outJson = await createReservationAfterPaymentExact({ offer, guest: guestObj, extras: extrasObj, discountCode });
         outStatus = 200;
       } catch (e) {
         outStatus = e?.status || 500;
@@ -1846,7 +1852,7 @@ const reservationId = (outJson && (outJson.id ?? outJson.reservationId)) ? (outJ
       return res.status(200).send("booked_ok");
     } catch (e) {
       await client.query("ROLLBACK");
-      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ message: e?.message || String(e) })]);
+      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", { kind:"stripe_webhook_booking_failed", name:(e?.name||null), message:(e?.message||String(e)), stack:(e?.stack||null), status:(e?.status||null), details:(e?.details||null) }]);
       return res.status(200).send("booking_failed");
     } finally {
       client.release();
