@@ -1635,10 +1635,10 @@ app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
       : 0;
 
 const ALLOW_COUPON = "last2026alp";
-    const COUPON_PCT = 20;
+    const COUPON_PCT = 40;
 
     // Coupon is only valid when coming from the Lastminute landing page
-    const isLastminuteSource = src.includes("/lpLMde/") || src.endsWith("/lpLMde/index.html") || src === "/lpLMde/index.html";
+    const isLastminuteSource = (/\/lpLM(?:de|en|nl)\//.test(src) || /\/lpLM(?:de|en|nl)\/index\.html$/.test(src) || ["/lpLMde/index.html","/lpLMen/index.html","/lpLMnl/index.html"].includes(src));
 
     const couponOk = (discountCode && discountCode === ALLOW_COUPON && isLastminuteSource);
 
