@@ -1375,6 +1375,39 @@ app.use(cors());
 app.use("/api/payment/stripe/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
+
+// ---- Debug ping (always on)
+app.get('/api/debug/ping', (req, res) => {
+  return res.json({
+    ok: true,
+    debug_payments: String(process.env.DEBUG_PAYMENTS || ''),
+    ts: new Date().toISOString(),
+  });
+});
+
+// ---- Debug booking-payment (always registered; gated by DEBUG_PAYMENTS)
+app.get('/api/debug/booking-payment', async (req, res) => {
+  if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() !== 'true') {
+    return res.status(403).json({ ok: false, error: 'debug_disabled' });
+  }
+  try {
+    const pi = String(req.query.pi || '').trim();
+    if (!pi) return res.status(400).json({ ok:false, error:'missing pi' });
+    if (!db) return res.status(500).json({ ok:false, error:'db_not_configured' });
+
+    const r = await db.query(
+      'select id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error from booking_payments where stripe_payment_intent_id = $1 limit 1',
+      [pi]
+    );
+    const row = r?.rows?.[0] || null;
+    if (!row) return res.status(404).json({ ok:false, error:'not found' });
+    return res.json({ ok:true, row });
+  } catch (e) {
+    return res.status(500).json({ ok:false, error:String(e) });
+  }
+});
+
+
 // ✅ Only ENV key (Render → Environment Variables)
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
@@ -1721,7 +1754,7 @@ const firstName = String(guest?.firstName || "").trim();
   const notice = (discountCode ? `${notice0} [DiscountCode:${String(discountCode).trim()}]`.trim() : notice0).slice(0,800);
 
   
-}
+
 // ---------------- Stripe: Webhook (PAYMENT -> BOOK) ----------------
 app.post("/api/payment/stripe/webhook", async (req, res) => {
   try {
