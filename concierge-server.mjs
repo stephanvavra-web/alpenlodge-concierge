@@ -1375,6 +1375,34 @@ app.use(cors());
 app.use("/api/payment/stripe/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
+// --- Debug helpers (non-destructive) ---
+// Allows checking why a paid Stripe intent did not create a Smoobu reservation.
+// Enabled only when DEBUG_PAYMENTS=true to avoid exposing internals in prod by accident.
+app.get("/api/debug/booking-payment", async (req, res) => {
+  try {
+    if (String(process.env.DEBUG_PAYMENTS || "").toLowerCase() !== "true") {
+      return res.status(404).json({ ok: false });
+    }
+    if (!db) return res.status(500).json({ ok: false, error: "db_not_configured" });
+
+    const pi = typeof req.query.pi === "string" ? req.query.pi.trim() : "";
+    const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
+    if (!pi && !id) return res.status(400).json({ ok: false, error: "missing_pi_or_id" });
+
+    const q = pi
+      ? { sql: "SELECT id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error FROM booking_payments WHERE stripe_payment_intent_id=$1", args: [pi] }
+      : { sql: "SELECT id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error FROM booking_payments WHERE id=$1", args: [id] };
+
+    const r = await db.query(q.sql, q.args);
+    if (!r.rowCount) return res.status(404).json({ ok: false, error: "not_found" });
+
+    return res.json({ ok: true, row: r.rows[0] });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e?.message || String(e) });
+  }
+});
+
+
 // ✅ Only ENV key (Render → Environment Variables)
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
@@ -1703,7 +1731,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
     const pi = event.data?.object;
     const paymentIntentId = String(pi?.id || "");
     const r0 = await db.query("SELECT * FROM booking_payments WHERE stripe_payment_intent_id=$1", [paymentIntentId]);
-    if (!r0.rowCount) return res.status(200).send("unknown_intent_ok");
+    if (!r0.rowCount) { console.warn("⚠️ webhook: unknown_intent_ok", { paymentIntentId }); return res.status(200).send("unknown_intent_ok"); }
     const paymentId = r0.rows[0].id;
 
     if (type !== "payment_intent.succeeded") {
@@ -1749,6 +1777,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
       if (outStatus !== 200 || !outJson || !outJson.ok) {
         await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ outStatus, outJson })]);
         await client.query("COMMIT");
+        console.error("❌ webhook: booking_failed_recorded", { paymentId, outStatus, outJson });
         return res.status(200).send("booking_failed_recorded");
       }
 
