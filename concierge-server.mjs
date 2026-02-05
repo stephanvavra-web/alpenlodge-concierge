@@ -1676,7 +1676,28 @@ const ALLOW_COUPON = "last2026alp";
 app.get("/api/payment/stripe/status/:paymentId", async (req, res) => {
   try {
     const id = String(req.params.paymentId || "").trim();
-    if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
+    
+// ---- Debug (optional): booking_payments lookup by PaymentIntent (enable with DEBUG_PAYMENTS=true)
+if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() === 'true') {
+  app.get('/api/debug/booking-payment', async (req, res) => {
+    try {
+      const pi = String(req.query.pi || '').trim();
+      if (!pi) return res.status(400).json({ ok:false, error:'missing pi' });
+      if (!db) return res.status(500).json({ ok:false, error:'db_not_configured' });
+      const r = await db.query(
+        'select id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error from booking_payments where stripe_payment_intent_id = $1 limit 1',
+        [pi]
+      );
+      const row = r?.rows?.[0] || null;
+      if (!row) return res.status(404).json({ ok:false, error:'not found' });
+      return res.json({ ok:true, row });
+    } catch (e) {
+      return res.status(500).json({ ok:false, error:String(e) });
+    }
+  });
+}
+
+if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
     if (!db) return res.status(500).json({ ok:false, error:"db_not_configured" });
     const r = await db.query("SELECT id,status,amount_cents,currency,stripe_payment_intent_id,smoobu_reservation_id,last_error,created_at FROM booking_payments WHERE id=$1", [id]);
     if (!r.rowCount) return res.status(404).json({ ok:false, error:"not_found" });
@@ -1689,21 +1710,14 @@ app.get("/api/payment/stripe/status/:paymentId", async (req, res) => {
 
 // ---- Post-payment calendar entry (Smoobu) — EXACT per API reference:
 // POST /api/reservations with fields: apartmentId, arrival, departure, firstName, lastName, email, phone, channelId, adults, children, price.
-// (We do NOT modify the existing booking flow; this is only used after payment.)
-async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
+async function createReservationAfterPaymentExact({ offer, guest, discountCode }) {
   const firstName = String(guest?.firstName || "").trim();
   const lastName  = String(guest?.lastName  || "").trim();
   const email     = String(guest?.email     || "").trim();
   const phone     = String(guest?.phone     || "").trim();
-  const country   = String(guest?.country   || "").trim();
-  const language  = String(guest?.language  || "de").trim();
-  const addressObj = (guest?.address && typeof guest.address === "object") ? guest.address : {};
-  const adults0 = Number(guest?.adults ?? offer?.guests ?? 0) || 0;
+  const adults0   = Number(guest?.adults ?? offer?.guests ?? 0) || 0;
   const children0 = Number(guest?.children ?? 0) || 0;
-  const guests0 = Number(offer?.guests ?? (adults0 + children0) ?? 0) || 0;
-
-  const notice0 = String(guest?.notice || "").trim();
-  const notice = (discountCode ? `${notice0} [DiscountCode:${String(discountCode).trim()}]`.trim() : notice0).slice(0,800);
+  const guests0   = Number(offer?.guests ?? (adults0 + children0) ?? 0) || 0;
 
   const payload = {
     apartmentId: offer.apartmentId,
@@ -1717,14 +1731,8 @@ async function createReservationAfterPaymentExact({ offer, guest, extras, discou
     adults: (adults0 || guests0),
     children: (children0 || 0),
     price: offer.price,
-    // Optional but often accepted (safe): address/country/language/notice
-    address: addressObj,
-    country,
-    language,
-    notice,
   };
 
-  // Smoobu API endpoint per reference:
   return smoobuFetch("/api/reservations", { method: "POST", jsonBody: payload, timeoutMs: 25000 });
 }
 
@@ -1779,23 +1787,19 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
         language: guest.language || "de",
         notice: (guest.notice || "").toString().slice(0,800),
         extras,
-      };
-
-            // After successful payment: create reservation in Smoobu calendar (exact API payload).
+      };      // After successful payment: create reservation in Smoobu calendar (exact API payload)
       let outStatus = 200;
       let outJson = null;
-
       try {
         const offer = (offerWrap && offerWrap.offer) ? offerWrap.offer : verifyOffer(offerWrap.offerToken);
-        outJson = await createReservationAfterPaymentExact({ offer, guest, extras, discountCode });
+        outJson = await createReservationAfterPaymentExact({ offer, guest, discountCode });
         outStatus = 200;
       } catch (e) {
         outStatus = e?.status || 500;
         outJson = { ok: false, error: (e?.message || String(e)), details: (e?.details || null) };
       }
-
 if (outStatus !== 200 || !outJson || !outJson.ok) {
-        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ outStatus, outJson })]);
+        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ kind: "post_payment_booking", outStatus, outJson })]);
         await client.query("COMMIT");
         return res.status(200).send("booking_failed_recorded");
       }
