@@ -9,24 +9,20 @@ import Stripe from "stripe";
 import pg from "pg";
 
 
-// ---- AL: robust error serialization (store readable JSON in booking_payments.last_error)
-function alErrToObj(e, extra) {
-  const base = {
-    name: e && e.name ? String(e.name) : 'Error',
-    message: e && e.message ? String(e.message) : String(e),
-    stack: e && e.stack ? String(e.stack) : undefined,
-  };
+// ---- AL: safe JSON parse helper (avoids JSON.parse on objects)
+function alJsonParseMaybe(v) {
   try {
-    if (e && typeof e === 'object') {
-      for (const k of Object.keys(e)) {
-        if (base[k] === undefined) base[k] = e[k];
-      }
+    if (v === null || v === undefined) return v;
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (!s) return v;
+      if (s.startsWith('{') || s.startsWith('[')) return alJsonParseMaybe(s);
+      return v;
     }
-  } catch (_) {}
-  if (extra && typeof extra === 'object') {
-    try { Object.assign(base, extra); } catch (_) {}
+    return v; // already an object
+  } catch (e) {
+    return { parse_error: String(e), raw: String(v) };
   }
-  return base;
 }
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
@@ -153,7 +149,7 @@ function loadKnowledge() {
     const st = fs.statSync(p);
     if (_knowledgeCache.value && _knowledgeCache.mtimeMs === st.mtimeMs) return _knowledgeCache.value;
     const raw = fs.readFileSync(p, "utf8");
-    const json = JSON.parse(raw);
+    const json = alJsonParseMaybe(raw);
     _knowledgeCache = { ts: Date.now(), mtimeMs: st.mtimeMs, value: json };
     return json;
   } catch (e) {
@@ -271,7 +267,7 @@ function loadUnits() {
     const st = fs.statSync(UNITS_FILE);
     if (_unitsCache.value && _unitsCache.mtimeMs === st.mtimeMs) return _unitsCache.value;
     const raw = fs.readFileSync(UNITS_FILE, "utf8");
-    const json = JSON.parse(raw);
+    const json = alJsonParseMaybe(raw);
     const units = Array.isArray(json?.units) ? json.units : [];
     _unitsCache = { mtimeMs: st.mtimeMs, value: units };
     return units;
@@ -1324,7 +1320,7 @@ async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 
     const r = await fetch(url.toString(), init);
     const text = await r.text();
     let data;
-    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+    try { data = text ? alJsonParseMaybe(text) : null; } catch { data = { raw: text }; }
     if (!r.ok) {
       const e = new Error("Smoobu request failed");
       e.status = r.status;
@@ -1805,7 +1801,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
     const paymentId = r0.rows[0].id;
 
     if (type !== "payment_intent.succeeded") {
-      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "payment_failed", { kind: "stripe_webhook_non_succeeded", type }]);
+      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "payment_failed", JSON.stringify({ type })]);
       return res.status(200).send("ok");
     }
 
@@ -1818,9 +1814,9 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
       await client.query("UPDATE booking_payments SET status=$2 WHERE id=$1", [paymentId, "paid"]);
 
-      const offerWrap = JSON.parse(row.offer_json);
-      const guest = JSON.parse(row.guest_json);
-      const extras = JSON.parse(row.extras_json);
+      const offerWrap = alJsonParseMaybe(row.offer_json);
+      const guest = alJsonParseMaybe(row.guest_json);
+      const extras = alJsonParseMaybe(row.extras_json);
 
       const bookBody = {
         offerToken: offerWrap.offerToken,
@@ -1855,7 +1851,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
 const reservationId = (outJson && (outJson.id ?? outJson.reservationId)) ? (outJson.id ?? outJson.reservationId) : null;
       if (outStatus !== 200 || !outJson || !reservationId) {
-        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", { kind: "post_payment_booking", outStatus, outJson }]);
+        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ kind: "post_payment_booking", outStatus, outJson })]);
         await client.query("COMMIT");
         return res.status(200).send("booking_failed_recorded");
       }
@@ -1866,7 +1862,7 @@ const reservationId = (outJson && (outJson.id ?? outJson.reservationId)) ? (outJ
       return res.status(200).send("booked_ok");
     } catch (e) {
       await client.query("ROLLBACK");
-      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", alErrToObj(e, { kind: "stripe_webhook_booking_failed" })]);
+      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ message: e?.message || String(e) })]);
       return res.status(200).send("booking_failed");
     } finally {
       client.release();
