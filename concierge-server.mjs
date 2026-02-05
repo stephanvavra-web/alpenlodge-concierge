@@ -8,6 +8,28 @@ import OpenAI from "openai";
 import Stripe from "stripe";
 import pg from "pg";
 
+
+// ---- AL: safe JSON helpers (for booking_payments.last_error)
+function alSafeJsonStringify(val) {
+  try {
+    if (val === null || val === undefined) return '';
+    if (typeof val === 'string') return val;
+    return alSafeJsonStringify(val);
+  } catch (e) {
+    try { return JSON.stringify({ message: String(e), fallback: String(val) }); } catch (_) { return String(val); }
+  }
+}
+function alSafeJsonParse(val) {
+  try {
+    if (!val) return null;
+    if (typeof val === 'object') return val;
+    const s = String(val);
+    if (s.trim().startsWith('{') || s.trim().startsWith('[')) return JSON.parse(s);
+    return { message: s };
+  } catch (e) {
+    return { message: String(val), parse_error: String(e) };
+  }
+}
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
 // Resolve paths for local files (ESM-safe)
@@ -728,7 +750,7 @@ async function fetchStayOptions({ arrival, departure, guests }) {
   const g = Number(guests);
   if (Number.isFinite(g) && g > 0) payload.guests = g;
 
-  const cacheKey = JSON.stringify(payload);
+  const cacheKey = alSafeJsonStringify(payload);
   const cached = availabilityCacheGet(cacheKey);
   if (cached) return cached;
 
@@ -1215,7 +1237,7 @@ function b64urlDecode(b64url) {
 
 function signOffer(payloadObj) {
   if (!BOOKING_TOKEN_SECRET) throw new Error("Missing BOOKING_TOKEN_SECRET");
-  const payload = JSON.stringify(payloadObj);
+  const payload = alSafeJsonStringify(payloadObj);
   const payloadB64 = b64urlEncode(payload);
   const sig = crypto.createHmac("sha256", BOOKING_TOKEN_SECRET).update(payloadB64).digest("base64url");
   return `${payloadB64}.${sig}`;
@@ -1291,7 +1313,7 @@ async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 
     const init = { method, headers, signal: controller.signal };
     if (jsonBody !== undefined) {
       headers["Content-Type"] = "application/json";
-      init.body = JSON.stringify(jsonBody);
+      init.body = alSafeJsonStringify(jsonBody);
     }
     const url = new URL(`${SMOOBU_BASE}${path}`);
     if (query && typeof query === "object") {
@@ -1374,34 +1396,6 @@ app.use(cors());
 // Stripe webhooks require raw body; do NOT run express.json() on that route.
 app.use("/api/payment/stripe/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
-
-// --- Debug helpers (non-destructive) ---
-// Allows checking why a paid Stripe intent did not create a Smoobu reservation.
-// Enabled only when DEBUG_PAYMENTS=true to avoid exposing internals in prod by accident.
-app.get("/api/debug/booking-payment", async (req, res) => {
-  try {
-    if (String(process.env.DEBUG_PAYMENTS || "").toLowerCase() !== "true") {
-      return res.status(404).json({ ok: false });
-    }
-    if (!db) return res.status(500).json({ ok: false, error: "db_not_configured" });
-
-    const pi = typeof req.query.pi === "string" ? req.query.pi.trim() : "";
-    const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
-    if (!pi && !id) return res.status(400).json({ ok: false, error: "missing_pi_or_id" });
-
-    const q = pi
-      ? { sql: "SELECT id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error FROM booking_payments WHERE stripe_payment_intent_id=$1", args: [pi] }
-      : { sql: "SELECT id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error FROM booking_payments WHERE id=$1", args: [id] };
-
-    const r = await db.query(q.sql, q.args);
-    if (!r.rowCount) return res.status(404).json({ ok: false, error: "not_found" });
-
-    return res.json({ ok: true, row: r.rows[0] });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: e?.message || String(e) });
-  }
-});
-
 
 // ✅ Only ENV key (Render → Environment Variables)
 const apiKey = process.env.OPENAI_API_KEY;
@@ -1690,7 +1684,7 @@ const ALLOW_COUPON = "last2026alp";
 
     await db.query(
       "INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extras_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken,"discount": (couponOk ? {code:discountCode,pct:COUPON_PCT,amountCents:discountAmountCents,src:src} : null)}), JSON.stringify(guest), JSON.stringify(extras)]
+      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken,"discount": (couponOk ? {code:discountCode,pct:COUPON_PCT,amountCents:discountAmountCents,src:src} : null)}), alSafeJsonStringify(guest), alSafeJsonStringify(extras)]
     );
 
     return res.json({ ok:true, paymentId, paymentIntentId:intent.id, clientSecret:intent.client_secret, amountCents, currency:STRIPE_CURRENCY });
@@ -1731,7 +1725,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
     const pi = event.data?.object;
     const paymentIntentId = String(pi?.id || "");
     const r0 = await db.query("SELECT * FROM booking_payments WHERE stripe_payment_intent_id=$1", [paymentIntentId]);
-    if (!r0.rowCount) { console.warn("⚠️ webhook: unknown_intent_ok", { paymentIntentId }); return res.status(200).send("unknown_intent_ok"); }
+    if (!r0.rowCount) return res.status(200).send("unknown_intent_ok");
     const paymentId = r0.rows[0].id;
 
     if (type !== "payment_intent.succeeded") {
@@ -1777,7 +1771,6 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
       if (outStatus !== 200 || !outJson || !outJson.ok) {
         await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ outStatus, outJson })]);
         await client.query("COMMIT");
-        console.error("❌ webhook: booking_failed_recorded", { paymentId, outStatus, outJson });
         return res.status(200).send("booking_failed_recorded");
       }
 
@@ -1861,7 +1854,7 @@ async function smoobuAvailabilityHandler(req, res) {
     if (Number.isFinite(guestsNum) && guestsNum > 0) payload.guests = guestsNum;
     if (typeof discountCode === "string" && discountCode.trim()) payload.discountCode = discountCode.trim();
 
-    const cacheKey = JSON.stringify(payload);
+    const cacheKey = alSafeJsonStringify(payload);
     const cached = availabilityCacheGet(cacheKey);
     if (cached) return res.json(cached);
 
