@@ -8,28 +8,6 @@ import OpenAI from "openai";
 import Stripe from "stripe";
 import pg from "pg";
 
-
-// ---- AL: safe JSON helpers (for booking_payments.last_error and debug routes)
-function alSafeJsonStringify(val) {
-  try {
-    if (val === null || val === undefined) return '';
-    if (typeof val === 'string') return val;
-    return alSafeJsonStringify(val);
-  } catch (e) {
-    try { return JSON.stringify({ message: String(e), fallback: String(val) }); } catch (_) { return String(val); }
-  }
-}
-function alSafeJsonParse(val) {
-  try {
-    if (!val) return null;
-    if (typeof val === 'object') return val;
-    const s = String(val);
-    if (s.trim().startsWith('{') || s.trim().startsWith('[')) return JSON.parse(s);
-    return { message: s };
-  } catch (e) {
-    return { message: String(val), parse_error: String(e) };
-  }
-}
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
 // Resolve paths for local files (ESM-safe)
@@ -750,7 +728,7 @@ async function fetchStayOptions({ arrival, departure, guests }) {
   const g = Number(guests);
   if (Number.isFinite(g) && g > 0) payload.guests = g;
 
-  const cacheKey = alSafeJsonStringify(payload);
+  const cacheKey = JSON.stringify(payload);
   const cached = availabilityCacheGet(cacheKey);
   if (cached) return cached;
 
@@ -1237,7 +1215,7 @@ function b64urlDecode(b64url) {
 
 function signOffer(payloadObj) {
   if (!BOOKING_TOKEN_SECRET) throw new Error("Missing BOOKING_TOKEN_SECRET");
-  const payload = alSafeJsonStringify(payloadObj);
+  const payload = JSON.stringify(payloadObj);
   const payloadB64 = b64urlEncode(payload);
   const sig = crypto.createHmac("sha256", BOOKING_TOKEN_SECRET).update(payloadB64).digest("base64url");
   return `${payloadB64}.${sig}`;
@@ -1313,7 +1291,7 @@ async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 
     const init = { method, headers, signal: controller.signal };
     if (jsonBody !== undefined) {
       headers["Content-Type"] = "application/json";
-      init.body = alSafeJsonStringify(jsonBody);
+      init.body = JSON.stringify(jsonBody);
     }
     const url = new URL(`${SMOOBU_BASE}${path}`);
     if (query && typeof query === "object") {
@@ -1392,16 +1370,6 @@ function isWeatherQuestion(text = "") {
   return /(wetter|forecast|weather|regen|schnee|temperatur|sonnig|bewölkt)/.test(t);
 }
 const app = express();
-
-// ---- Debug ping (always on): confirms currently deployed concierge-server.mjs + env visibility
-app.get('/api/debug/ping', (req, res) => {
-  return res.json({
-    ok: true,
-    debug_payments: String(process.env.DEBUG_PAYMENTS || ''),
-    ts: new Date().toISOString()
-  });
-});
-
 app.use(cors());
 // Stripe webhooks require raw body; do NOT run express.json() on that route.
 app.use("/api/payment/stripe/webhook", express.raw({ type: "application/json" }));
@@ -1490,30 +1458,6 @@ function cents(amount) {
   return Math.round(n * 100);
 }
 // ✅ Health check for Render / monitoring
-// ---- Debug (optional): booking_payments lookup by PaymentIntent (enable with DEBUG_PAYMENTS=true)
-if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() === 'true') {
-  app.get('/api/debug/booking-payment', async (req, res) => {
-    try {
-      const pi = String(req.query.pi || '').trim();
-      if (!pi) return res.status(400).json({ ok:false, error:'missing pi' });
-
-      const r = await db.query(
-        'select id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error from booking_payments where stripe_payment_intent_id = $1 limit 1',
-        [pi]
-      );
-      const row = r?.rows?.[0] || null;
-      if (!row) return res.status(404).json({ ok:false, error:'not found' });
-
-      // parse last_error safely (may be json string or plain string)
-      const last_error = alSafeJsonParse(row.last_error);
-      return res.json({ ok:true, row: { ...row, last_error } });
-    } catch (e) {
-      return res.status(500).json({ ok:false, error:String(e) });
-    }
-  });
-}
-
-
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
@@ -1718,7 +1662,7 @@ const ALLOW_COUPON = "last2026alp";
 
     await db.query(
       "INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extras_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken,"discount": (couponOk ? {code:discountCode,pct:COUPON_PCT,amountCents:discountAmountCents,src:src} : null)}), alSafeJsonStringify(guest), alSafeJsonStringify(extras)]
+      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken,"discount": (couponOk ? {code:discountCode,pct:COUPON_PCT,amountCents:discountAmountCents,src:src} : null)}), JSON.stringify(guest), JSON.stringify(extras)]
     );
 
     return res.json({ ok:true, paymentId, paymentIntentId:intent.id, clientSecret:intent.client_secret, amountCents, currency:STRIPE_CURRENCY });
@@ -1732,7 +1676,29 @@ const ALLOW_COUPON = "last2026alp";
 app.get("/api/payment/stripe/status/:paymentId", async (req, res) => {
   try {
     const id = String(req.params.paymentId || "").trim();
-    if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
+    
+// ---- Debug (optional): booking_payments lookup by PaymentIntent (enable with DEBUG_PAYMENTS=true)
+if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() === 'true') {
+  app.get('/api/debug/booking-payment', async (req, res) => {
+    try {
+      const pi = String(req.query.pi || '').trim();
+      if (!pi) return res.status(400).json({ ok:false, error:'missing pi' });
+      if (!db) return res.status(500).json({ ok:false, error:'db_not_configured' });
+
+      const r = await db.query(
+        'select id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error from booking_payments where stripe_payment_intent_id = $1 limit 1',
+        [pi]
+      );
+      const row = r?.rows?.[0] || null;
+      if (!row) return res.status(404).json({ ok:false, error:'not found' });
+      return res.json({ ok:true, row });
+    } catch (e) {
+      return res.status(500).json({ ok:false, error:String(e) });
+    }
+  });
+}
+
+if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
     if (!db) return res.status(500).json({ ok:false, error:"db_not_configured" });
     const r = await db.query("SELECT id,status,amount_cents,currency,stripe_payment_intent_id,smoobu_reservation_id,last_error,created_at FROM booking_payments WHERE id=$1", [id]);
     if (!r.rowCount) return res.status(404).json({ ok:false, error:"not_found" });
@@ -1741,6 +1707,48 @@ app.get("/api/payment/stripe/status/:paymentId", async (req, res) => {
     res.status(500).json({ ok:false, error:"status_error", details: e?.message || String(e) });
   }
 });
+
+
+// ---- Post-payment calendar entry (Smoobu) — EXACT per API reference:
+// POST /api/reservations with fields: apartmentId, arrival, departure, firstName, lastName, email, phone, channelId, adults, children, price.
+// (We do NOT modify the existing booking flow; this is only used after payment.)
+async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
+  const firstName = String(guest?.firstName || "").trim();
+  const lastName  = String(guest?.lastName  || "").trim();
+  const email     = String(guest?.email     || "").trim();
+  const phone     = String(guest?.phone     || "").trim();
+  const country   = String(guest?.country   || "").trim();
+  const language  = String(guest?.language  || "de").trim();
+  const addressObj = (guest?.address && typeof guest.address === "object") ? guest.address : {};
+  const adults0 = Number(guest?.adults ?? offer?.guests ?? 0) || 0;
+  const children0 = Number(guest?.children ?? 0) || 0;
+  const guests0 = Number(offer?.guests ?? (adults0 + children0) ?? 0) || 0;
+
+  const notice0 = String(guest?.notice || "").trim();
+  const notice = (discountCode ? `${notice0} [DiscountCode:${String(discountCode).trim()}]`.trim() : notice0).slice(0,800);
+
+  const payload = {
+    apartmentId: offer.apartmentId,
+    arrival: offer.arrivalDate || offer.arrival,
+    departure: offer.departureDate || offer.departure,
+    firstName,
+    lastName,
+    email,
+    phone,
+    channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
+    adults: (adults0 || guests0),
+    children: (children0 || 0),
+    price: offer.price,
+    // Optional but often accepted (safe): address/country/language/notice
+    address: addressObj,
+    country,
+    language,
+    notice,
+  };
+
+  // Smoobu API endpoint per reference:
+  return smoobuFetch("/api/reservations", { method: "POST", jsonBody: payload, timeoutMs: 25000 });
+}
 
 // ---------------- Stripe: Webhook (PAYMENT -> BOOK) ----------------
 app.post("/api/payment/stripe/webhook", async (req, res) => {
@@ -1795,15 +1803,23 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
         extras,
       };
 
-      const fakeReq = { body: bookBody, headers: {}, socket: { remoteAddress: "stripe-webhook" } };
+            // After successful payment: create reservation in Smoobu calendar (exact API payload).
       let outStatus = 200;
-      let outJson = null;
-      const fakeRes = { status: (c)=>{outStatus=c; return fakeRes;}, json:(j)=>{outJson=j; return fakeRes;} };
+      let outJson = null;      const discountCode = String(offerWrap?.discount?.code || "").trim();
 
-      await publicBookHandler(fakeReq, fakeRes);
 
-      if (outStatus !== 200 || !outJson || !outJson.ok) {
-        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ outStatus, outJson })]);
+
+      try {
+        const offer = (offerWrap && offerWrap.offer) ? offerWrap.offer : verifyOffer(offerWrap.offerToken);
+        outJson = await createReservationAfterPaymentExact({ offer, guest, extras, discountCode });
+        outStatus = 200;
+      } catch (e) {
+        outStatus = e?.status || 500;
+        outJson = { ok: false, error: (e?.message || String(e)), details: (e?.details || null) };
+      }
+
+if (outStatus !== 200 || !outJson || !outJson.ok) {
+        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ kind: "post_payment_booking", outStatus, outJson })]);
         await client.query("COMMIT");
         return res.status(200).send("booking_failed_recorded");
       }
@@ -1888,7 +1904,7 @@ async function smoobuAvailabilityHandler(req, res) {
     if (Number.isFinite(guestsNum) && guestsNum > 0) payload.guests = guestsNum;
     if (typeof discountCode === "string" && discountCode.trim()) payload.discountCode = discountCode.trim();
 
-    const cacheKey = alSafeJsonStringify(payload);
+    const cacheKey = JSON.stringify(payload);
     const cached = availabilityCacheGet(cacheKey);
     if (cached) return res.json(cached);
 
