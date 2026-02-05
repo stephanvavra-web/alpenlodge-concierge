@@ -1384,6 +1384,7 @@ app.get('/api/debug/ping', (req, res) => {
     debug_payments: String(process.env.DEBUG_PAYMENTS || ''),
     ts: new Date().toISOString()
   });
+});
 
 // ---- Debug: booking_payments lookup by PaymentIntent (enable with DEBUG_PAYMENTS=true)
 if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() === 'true') {
@@ -1406,8 +1407,6 @@ if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() === 'true') {
   });
 }
 
-
-});
 
 // ✅ Only ENV key (Render → Environment Variables)
 const apiKey = process.env.OPENAI_API_KEY;
@@ -1820,7 +1819,8 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
             // After successful payment: create reservation in Smoobu calendar (exact API payload).
       let outStatus = 200;
-      let outJson = null;      const discountCode = String(offerWrap?.discount?.code || "").trim();
+      let outJson = null;
+      const discountCode = String(offerWrap?.discount?.code || "").trim();
 
 
 
@@ -1833,13 +1833,14 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
         outJson = { ok: false, error: (e?.message || String(e)), details: (e?.details || null) };
       }
 
-if (outStatus !== 200 || !outJson || !outJson.ok) {
+const reservationId = (outJson && (outJson.id ?? outJson.reservationId)) ? (outJson.id ?? outJson.reservationId) : null;
+      if (outStatus !== 200 || !outJson || !reservationId) {
         await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ kind: "post_payment_booking", outStatus, outJson })]);
         await client.query("COMMIT");
         return res.status(200).send("booking_failed_recorded");
       }
 
-      const smoobuId = outJson.id ? String(outJson.id) : null;
+      const smoobuId = reservationId ? String(reservationId) : (outJson && outJson.id ? String(outJson.id) : null);
       await client.query("UPDATE booking_payments SET status=$2, smoobu_reservation_id=$3 WHERE id=$1", [paymentId, "booked", smoobuId]);
       await client.query("COMMIT");
       return res.status(200).send("booked_ok");
