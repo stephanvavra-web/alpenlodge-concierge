@@ -1721,7 +1721,7 @@ const firstName = String(guest?.firstName || "").trim();
   const notice = (discountCode ? `${notice0} [DiscountCode:${String(discountCode).trim()}]`.trim() : notice0).slice(0,800);
 
   
-
+}
 // ---------------- Stripe: Webhook (PAYMENT -> BOOK) ----------------
 app.post("/api/payment/stripe/webhook", async (req, res) => {
   try {
