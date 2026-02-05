@@ -8,6 +8,26 @@ import OpenAI from "openai";
 import Stripe from "stripe";
 import pg from "pg";
 
+
+// ---- AL: robust error serialization (store readable JSON in booking_payments.last_error)
+function alErrToObj(e, extra) {
+  const base = {
+    name: e && e.name ? String(e.name) : 'Error',
+    message: e && e.message ? String(e.message) : String(e),
+    stack: e && e.stack ? String(e.stack) : undefined,
+  };
+  try {
+    if (e && typeof e === 'object') {
+      for (const k of Object.keys(e)) {
+        if (base[k] === undefined) base[k] = e[k];
+      }
+    }
+  } catch (_) {}
+  if (extra && typeof extra === 'object') {
+    try { Object.assign(base, extra); } catch (_) {}
+  }
+  return base;
+}
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
 // Resolve paths for local files (ESM-safe)
@@ -1785,7 +1805,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
     const paymentId = r0.rows[0].id;
 
     if (type !== "payment_intent.succeeded") {
-      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "payment_failed", JSON.stringify({ type })]);
+      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "payment_failed", { kind: "stripe_webhook_non_succeeded", type }]);
       return res.status(200).send("ok");
     }
 
@@ -1835,7 +1855,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
 const reservationId = (outJson && (outJson.id ?? outJson.reservationId)) ? (outJson.id ?? outJson.reservationId) : null;
       if (outStatus !== 200 || !outJson || !reservationId) {
-        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ kind: "post_payment_booking", outStatus, outJson })]);
+        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", { kind: "post_payment_booking", outStatus, outJson }]);
         await client.query("COMMIT");
         return res.status(200).send("booking_failed_recorded");
       }
@@ -1846,7 +1866,7 @@ const reservationId = (outJson && (outJson.id ?? outJson.reservationId)) ? (outJ
       return res.status(200).send("booked_ok");
     } catch (e) {
       await client.query("ROLLBACK");
-      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ message: e?.message || String(e) })]);
+      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", alErrToObj(e, { kind: "stripe_webhook_booking_failed" })]);
       return res.status(200).send("booking_failed");
     } finally {
       client.release();
