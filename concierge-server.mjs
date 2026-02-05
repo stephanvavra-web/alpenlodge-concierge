@@ -1726,14 +1726,14 @@ if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
 // ---- Post-payment calendar entry (Smoobu) — EXACT per API reference:
 // POST /api/reservations with fields: apartmentId, arrival, departure, firstName, lastName, email, phone, channelId, adults, children, price.
 // (We do NOT modify the existing booking flow; this is only used after payment.)
-async function createReservationAfterPaymentExact({ offer, guest: guest, extras: extras: extrasObj, discountCode }) {
+async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
   const firstName = String(guest?.firstName || "").trim();
   const lastName  = String(guest?.lastName  || "").trim();
   const email     = String(guest?.email     || "").trim();
   const phone     = String(guest?.phone     || "").trim();
   const country   = String(guest?.country   || "").trim();
   const language  = String(guest?.language  || "de").trim();
-  const addressObj = (guest?.address && typeof guestObj.address === "object") ? guestObj.address : {};
+  const addressObj = (guest?.address && typeof guest.address === "object") ? guest.address : {};
   const adults0 = Number(guest?.adults ?? offer?.guests ?? 0) || 0;
   const children0 = Number(guest?.children ?? 0) || 0;
   const guests0 = Number(offer?.guests ?? (adults0 + children0) ?? 0) || 0;
@@ -1798,38 +1798,35 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
       await client.query("UPDATE booking_payments SET status=$2 WHERE id=$1", [paymentId, "paid"]);
 
-      const offerWrap = row.offer_json;
-      const offerWrapObj = (typeof offerWrap === 'string') ? (offerWrap ? JSON.parse(offerWrap) : null) : offerWrap;
-      const guest = row.guest_json;
-      const guestObj = (typeof guest === 'string') ? (guest ? JSON.parse(guest) : null) : guest;
-      const extras = row.extras_json;
-      const extrasObj = (typeof extras === 'string') ? (extras ? JSON.parse(extras) : null) : extras;
+      const offerWrap = JSON.parse(row.offer_json);
+      const guest = JSON.parse(row.guest_json);
+      const extras = JSON.parse(row.extras_json);
 
       const bookBody = {
-        offerToken: offerWrapObj.offerToken,
-        firstName: guestObj.firstName || "",
-        lastName: guestObj.lastName || "",
-        email: guestObj.email || "",
-        phone: guestObj.phone || "",
-        address: guestObj.address || {},
-        country: guestObj.country || "",
-        adults: Number(guestObj.adults || offerWrapObj.offer?.guests || 0) || 0,
-        children: Number(guestObj.children || 0) || 0,
-        language: guestObj.language || "de",
-        notice: (guestObj.notice || "").toString().slice(0,800),
-        extras: extrasObj,
+        offerToken: offerWrap.offerToken,
+        firstName: guest.firstName || "",
+        lastName: guest.lastName || "",
+        email: guest.email || "",
+        phone: guest.phone || "",
+        address: guest.address || {},
+        country: guest.country || "",
+        adults: Number(guest.adults || offerWrap.offer?.guests || 0) || 0,
+        children: Number(guest.children || 0) || 0,
+        language: guest.language || "de",
+        notice: (guest.notice || "").toString().slice(0,800),
+        extras,
       };
 
             // After successful payment: create reservation in Smoobu calendar (exact API payload).
       let outStatus = 200;
       let outJson = null;
-      const discountCode = String(offerWrapObj?.discount?.code || "").trim();
+      const discountCode = String(offerWrap?.discount?.code || "").trim();
 
 
 
       try {
-        const offer = (offerWrap && offerWrapObj.offer) ? offerWrapObj.offer : verifyOffer(offerWrapObj.offerToken);
-        outJson = await createReservationAfterPaymentExact({ offer, guest: guestObj, extras: extrasObj, discountCode });
+        const offer = (offerWrap && offerWrap.offer) ? offerWrap.offer : verifyOffer(offerWrap.offerToken);
+        outJson = await createReservationAfterPaymentExact({ offer, guestObj, extras: extrasObj, discountCode });
         outStatus = 200;
       } catch (e) {
         outStatus = e?.status || 500;
@@ -1838,7 +1835,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
 const reservationId = (outJson && (outJson.id ?? outJson.reservationId)) ? (outJson.id ?? outJson.reservationId) : null;
       if (outStatus !== 200 || !outJson || !reservationId) {
-        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", { kind: "post_payment_booking", outStatus, outJson }]);
+        await client.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ kind: "post_payment_booking", outStatus, outJson })]);
         await client.query("COMMIT");
         return res.status(200).send("booking_failed_recorded");
       }
@@ -1849,7 +1846,7 @@ const reservationId = (outJson && (outJson.id ?? outJson.reservationId)) ? (outJ
       return res.status(200).send("booked_ok");
     } catch (e) {
       await client.query("ROLLBACK");
-      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", { kind: "stripe_webhook_booking_failed", name: (e?.name || null), message: (e?.message || String(e)), stack: (e?.stack || null), status: (e?.status || null), details: (e?.details || null) }]);
+      await db.query("UPDATE booking_payments SET status=$2, last_error=$3 WHERE id=$1", [paymentId, "booking_failed", JSON.stringify({ message: e?.message || String(e) })]);
       return res.status(200).send("booking_failed");
     } finally {
       client.release();
