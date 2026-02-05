@@ -9,7 +9,7 @@ import Stripe from "stripe";
 import pg from "pg";
 
 
-// ---- AL: safe JSON helpers (for booking_payments.last_error)
+// ---- AL: safe JSON helpers (for booking_payments.last_error and debug routes)
 function alSafeJsonStringify(val) {
   try {
     if (val === null || val === undefined) return '';
@@ -1480,6 +1480,30 @@ function cents(amount) {
   return Math.round(n * 100);
 }
 // ✅ Health check for Render / monitoring
+// ---- Debug (optional): booking_payments lookup by PaymentIntent (enable with DEBUG_PAYMENTS=true)
+if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() === 'true') {
+  app.get('/api/debug/booking-payment', async (req, res) => {
+    try {
+      const pi = String(req.query.pi || '').trim();
+      if (!pi) return res.status(400).json({ ok:false, error:'missing pi' });
+
+      const r = await db.query(
+        'select id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error from booking_payments where stripe_payment_intent_id = $1 limit 1',
+        [pi]
+      );
+      const row = r?.rows?.[0] || null;
+      if (!row) return res.status(404).json({ ok:false, error:'not found' });
+
+      // parse last_error safely (may be json string or plain string)
+      const last_error = alSafeJsonParse(row.last_error);
+      return res.json({ ok:true, row: { ...row, last_error } });
+    } catch (e) {
+      return res.status(500).json({ ok:false, error:String(e) });
+    }
+  });
+}
+
+
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
