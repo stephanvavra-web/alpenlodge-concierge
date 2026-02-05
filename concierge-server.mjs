@@ -8,22 +8,6 @@ import OpenAI from "openai";
 import Stripe from "stripe";
 import pg from "pg";
 
-
-// ---- AL: safe JSON parse helper (avoids JSON.parse on objects)
-function alJsonParseMaybe(v) {
-  try {
-    if (v === null || v === undefined) return v;
-    if (typeof v === 'string') {
-      const s = v.trim();
-      if (!s) return v;
-      if (s.startsWith('{') || s.startsWith('[')) return alJsonParseMaybe(s);
-      return v;
-    }
-    return v; // already an object
-  } catch (e) {
-    return { parse_error: String(e), raw: String(v) };
-  }
-}
 const THIERSEE = { lat: 47.5860, lon: 12.1070 };
 
 // Resolve paths for local files (ESM-safe)
@@ -149,7 +133,7 @@ function loadKnowledge() {
     const st = fs.statSync(p);
     if (_knowledgeCache.value && _knowledgeCache.mtimeMs === st.mtimeMs) return _knowledgeCache.value;
     const raw = fs.readFileSync(p, "utf8");
-    const json = alJsonParseMaybe(raw);
+    const json = JSON.parse(raw);
     _knowledgeCache = { ts: Date.now(), mtimeMs: st.mtimeMs, value: json };
     return json;
   } catch (e) {
@@ -267,7 +251,7 @@ function loadUnits() {
     const st = fs.statSync(UNITS_FILE);
     if (_unitsCache.value && _unitsCache.mtimeMs === st.mtimeMs) return _unitsCache.value;
     const raw = fs.readFileSync(UNITS_FILE, "utf8");
-    const json = alJsonParseMaybe(raw);
+    const json = JSON.parse(raw);
     const units = Array.isArray(json?.units) ? json.units : [];
     _unitsCache = { mtimeMs: st.mtimeMs, value: units };
     return units;
@@ -1320,7 +1304,7 @@ async function smoobuFetch(path, { method = "GET", jsonBody, query, timeoutMs = 
     const r = await fetch(url.toString(), init);
     const text = await r.text();
     let data;
-    try { data = text ? alJsonParseMaybe(text) : null; } catch { data = { raw: text }; }
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
     if (!r.ok) {
       const e = new Error("Smoobu request failed");
       e.status = r.status;
@@ -1464,7 +1448,7 @@ async function dbInit() {
       currency TEXT NOT NULL,
       offer_json JSONB NOT NULL,
       guest_json JSONB NOT NULL,
-      extras_json JSONB NOT NULL,
+      extrasObj_json JSONB NOT NULL,
       smoobu_reservation_id TEXT,
       last_error JSONB
     );
@@ -1673,12 +1657,12 @@ app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
     catch (e) { return res.status(400).json({ ok: false, error: "invalid_offerToken", message: e?.message || String(e) }); }
 
     const guest = (body.guest && typeof body.guest === "object") ? body.guest : {};
-    const extras = (body.extras && typeof body.extras === "object") ? body.extras : {};
+    const extrasObj = (body.extrasObj && typeof body.extrasObj === "object") ? body.extrasObj : {};
 
     const basePrice = Number(offer.price || 0);
     const nights = nightsBetweenIso(offer.arrivalDate, offer.departureDate);
-    const dogs = Number(extras.dogs || 0);
-    const dogPricePerNight = Number(extras.dogPricePerNight || 10);
+    const dogs = Number(extrasObj.dogs || 0);
+    const dogPricePerNight = Number(extrasObj.dogPricePerNight || 10);
     const dogExtra = (Number.isFinite(dogs) && dogs > 0 && Number.isFinite(dogPricePerNight) && dogPricePerNight > 0 && nights > 0)
       ? (dogs * dogPricePerNight * nights)
       : 0;
@@ -1691,7 +1675,7 @@ const ALLOW_COUPON = "last2026alp";
 
     const couponOk = (discountCode && discountCode === ALLOW_COUPON && isLastminuteSource);
 
-    // Discount applies only to the accommodation base price (not extras like dogs)
+    // Discount applies only to the accommodation base price (not extrasObj like dogs)
     const discountBase = couponOk ? Math.max(0, basePrice) : 0;
     const discountAmount = couponOk ? (discountBase * (COUPON_PCT / 100)) : 0;
     const discountAmountCents = couponOk ? cents(discountAmount) : 0;
@@ -1710,8 +1694,8 @@ const ALLOW_COUPON = "last2026alp";
     });
 
     await db.query(
-      "INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extras_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken,"discount": (couponOk ? {code:discountCode,pct:COUPON_PCT,amountCents:discountAmountCents,src:src} : null)}), JSON.stringify(guest), JSON.stringify(extras)]
+      "INSERT INTO booking_payments(id,status,stripe_payment_intent_id,amount_cents,currency,offer_json,guest_json,extrasObj_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      [paymentId, "intent_created", intent.id, amountCents, STRIPE_CURRENCY, JSON.stringify({"offer":offer,"offerToken":offerToken,"discount": (couponOk ? {code:discountCode,pct:COUPON_PCT,amountCents:discountAmountCents,src:src} : null)}), JSON.stringify(guest), JSON.stringify(extrasObj)]
     );
 
     return res.json({ ok:true, paymentId, paymentIntentId:intent.id, clientSecret:intent.client_secret, amountCents, currency:STRIPE_CURRENCY });
@@ -1742,14 +1726,14 @@ if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
 // ---- Post-payment calendar entry (Smoobu) — EXACT per API reference:
 // POST /api/reservations with fields: apartmentId, arrival, departure, firstName, lastName, email, phone, channelId, adults, children, price.
 // (We do NOT modify the existing booking flow; this is only used after payment.)
-async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
+async function createReservationAfterPaymentExact({ offer, guest, extrasObj, discountCode }) {
   const firstName = String(guest?.firstName || "").trim();
   const lastName  = String(guest?.lastName  || "").trim();
   const email     = String(guest?.email     || "").trim();
   const phone     = String(guest?.phone     || "").trim();
   const country   = String(guest?.country   || "").trim();
   const language  = String(guest?.language  || "de").trim();
-  const addressObj = (guest?.address && typeof guest.address === "object") ? guest.address : {};
+  const addressObj = (guest?.address && typeof guestObj.address === "object") ? guestObj.address : {};
   const adults0 = Number(guest?.adults ?? offer?.guests ?? 0) || 0;
   const children0 = Number(guest?.children ?? 0) || 0;
   const guests0 = Number(offer?.guests ?? (adults0 + children0) ?? 0) || 0;
@@ -1814,23 +1798,28 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
       await client.query("UPDATE booking_payments SET status=$2 WHERE id=$1", [paymentId, "paid"]);
 
-      const offerWrap = alJsonParseMaybe(row.offer_json);
-      const guest = alJsonParseMaybe(row.guest_json);
-      const extras = alJsonParseMaybe(row.extras_json);
+      const offerWrap = row.offer_json;
+const guest = row.guest_json;
+const extrasObj = row.extrasObj_json;
 
-      const bookBody = {
-        offerToken: offerWrap.offerToken,
-        firstName: guest.firstName || "",
-        lastName: guest.lastName || "",
-        email: guest.email || "",
-        phone: guest.phone || "",
-        address: guest.address || {},
-        country: guest.country || "",
-        adults: Number(guest.adults || offerWrap.offer?.guests || 0) || 0,
-        children: Number(guest.children || 0) || 0,
-        language: guest.language || "de",
-        notice: (guest.notice || "").toString().slice(0,800),
-        extras,
+      // JSONB columns may arrive as objects (preferred). If they arrive as strings, parse them.
+      const offerWrapObj = (typeof offerWrap === 'string') ? (offerWrap ? JSON.parse(offerWrap) : null) : offerWrap;
+      const guestObj = (typeof guest === 'string') ? (guest ? JSON.parse(guest) : null) : guest;
+      const extrasObjObj = (typeof extrasObj === 'string') ? (extrasObj ? JSON.parse(extrasObj) : null) : extrasObj;
+
+const bookBody = {
+        offerToken: offerWrapObj.offerToken,
+        firstName: guestObj.firstName || "",
+        lastName: guestObj.lastName || "",
+        email: guestObj.email || "",
+        phone: guestObj.phone || "",
+        address: guestObj.address || {},
+        country: guestObj.country || "",
+        adults: Number(guestObj.adults || offerWrapObj.offer?.guests || 0) || 0,
+        children: Number(guestObj.children || 0) || 0,
+        language: guestObj.language || "de",
+        notice: (guestObj.notice || "").toString().slice(0,800),
+        extrasObj,
       };
 
             // After successful payment: create reservation in Smoobu calendar (exact API payload).
@@ -1841,8 +1830,8 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
 
 
       try {
-        const offer = (offerWrap && offerWrap.offer) ? offerWrap.offer : verifyOffer(offerWrap.offerToken);
-        outJson = await createReservationAfterPaymentExact({ offer, guest, extras, discountCode });
+        const offer = (offerWrap && offerWrapObj.offer) ? offerWrapObj.offer : verifyOffer(offerWrapObj.offerToken);
+        outJson = await createReservationAfterPaymentExact({ offer, guest, extrasObj, discountCode });
         outStatus = 200;
       } catch (e) {
         outStatus = e?.status || 500;
@@ -2292,14 +2281,14 @@ async function publicBookHandler(req, res) {
     // Some Smoobu responses return {id:...} others {reservationId:...}
     const bookingId = result?.id ?? result?.reservationId ?? null;
 
-    // --- Optional extras (best effort) ---
-    // Frontend may send extras like dogs; we attach them as price elements to the reservation.
-    const extras = (body && typeof body.extras === 'object' && body.extras) ? body.extras : {};
-    const extrasApplied = { dogs: 0, dogPricePerNight: 0, nights: 0, addedPriceElements: [], errors: [] };
+    // --- Optional extrasObj (best effort) ---
+    // Frontend may send extrasObj like dogs; we attach them as price elements to the reservation.
+    const extrasObj = (body && typeof body.extrasObj === 'object' && body.extrasObj) ? body.extrasObj : {};
+    const extrasObjApplied = { dogs: 0, dogPricePerNight: 0, nights: 0, addedPriceElements: [], errors: [] };
 
     try {
-      const dogs = Number(extras.dogs ?? 0);
-      const dogPricePerNight = Number(extras.dogPricePerNight ?? 0);
+      const dogs = Number(extrasObj.dogs ?? 0);
+      const dogPricePerNight = Number(extrasObj.dogPricePerNight ?? 0);
 
       // nights between arrival and departure
       const nights = (() => {
@@ -2310,14 +2299,14 @@ async function publicBookHandler(req, res) {
         return Number.isFinite(n) && n > 0 ? n : 0;
       })();
 
-      extrasApplied.dogs = Number.isFinite(dogs) ? dogs : 0;
-      extrasApplied.dogPricePerNight = Number.isFinite(dogPricePerNight) ? dogPricePerNight : 0;
-      extrasApplied.nights = nights;
+      extrasObjApplied.dogs = Number.isFinite(dogs) ? dogs : 0;
+      extrasObjApplied.dogPricePerNight = Number.isFinite(dogPricePerNight) ? dogPricePerNight : 0;
+      extrasObjApplied.nights = nights;
 
-      if (bookingId && extrasApplied.dogs > 0 && extrasApplied.dogPricePerNight > 0 && nights > 0) {
-        const amount = Math.round(extrasApplied.dogs * extrasApplied.dogPricePerNight * nights * 100) / 100;
+      if (bookingId && extrasObjApplied.dogs > 0 && extrasObjApplied.dogPricePerNight > 0 && nights > 0) {
+        const amount = Math.round(extrasObjApplied.dogs * extrasObjApplied.dogPricePerNight * nights * 100) / 100;
         const pePayload = {
-          name: `Hund (${extrasApplied.dogs}x)`,
+          name: `Hund (${extrasObjApplied.dogs}x)`,
           amount,
           tax: 0,
           calculationType: 0,
@@ -2327,13 +2316,13 @@ async function publicBookHandler(req, res) {
             method: 'POST',
             jsonBody: pePayload,
           });
-          extrasApplied.addedPriceElements.push({ type: 'dog', amount, response: peRes });
+          extrasObjApplied.addedPriceElements.push({ type: 'dog', amount, response: peRes });
         } catch (e) {
-          extrasApplied.errors.push({ type: 'dog', details: e?.details || { message: e?.message || String(e) } });
+          extrasObjApplied.errors.push({ type: 'dog', details: e?.details || { message: e?.message || String(e) } });
         }
       }
     } catch (e) {
-      extrasApplied.errors.push({ type: 'extras', details: { message: e?.message || String(e) } });
+      extrasObjApplied.errors.push({ type: 'extrasObj', details: { message: e?.message || String(e) } });
     }
 
     scheduleChatSnapshotRefresh('booking');
@@ -2349,7 +2338,7 @@ async function publicBookHandler(req, res) {
         price: offer.price,
         currency: offer.currency,
       },
-      extrasApplied,
+      extrasObjApplied,
       result,
     });
   } catch (err) {
