@@ -1375,6 +1375,40 @@ app.use(cors());
 app.use("/api/payment/stripe/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
+
+
+// ---- Debug ping (always on): confirms currently deployed concierge-server.mjs + env visibility
+app.get('/api/debug/ping', (req, res) => {
+  return res.json({
+    ok: true,
+    debug_payments: String(process.env.DEBUG_PAYMENTS || ''),
+    ts: new Date().toISOString()
+  });
+
+// ---- Debug: booking_payments lookup by PaymentIntent (enable with DEBUG_PAYMENTS=true)
+if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() === 'true') {
+  app.get('/api/debug/booking-payment', async (req, res) => {
+    try {
+      const pi = String(req.query.pi || '').trim();
+      if (!pi) return res.status(400).json({ ok:false, error:'missing pi' });
+      if (!db) return res.status(500).json({ ok:false, error:'db_not_configured' });
+
+      const r = await db.query(
+        'select id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error from booking_payments where stripe_payment_intent_id = $1 limit 1',
+        [pi]
+      );
+      const row = r?.rows?.[0] || null;
+      if (!row) return res.status(404).json({ ok:false, error:'not found' });
+      return res.json({ ok:true, row });
+    } catch (e) {
+      return res.status(500).json({ ok:false, error:String(e) });
+    }
+  });
+}
+
+
+});
+
 // ✅ Only ENV key (Render → Environment Variables)
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
@@ -1677,26 +1711,7 @@ app.get("/api/payment/stripe/status/:paymentId", async (req, res) => {
   try {
     const id = String(req.params.paymentId || "").trim();
     
-// ---- Debug (optional): booking_payments lookup by PaymentIntent (enable with DEBUG_PAYMENTS=true)
-if (String(process.env.DEBUG_PAYMENTS || '').toLowerCase() === 'true') {
-  app.get('/api/debug/booking-payment', async (req, res) => {
-    try {
-      const pi = String(req.query.pi || '').trim();
-      if (!pi) return res.status(400).json({ ok:false, error:'missing pi' });
-      if (!db) return res.status(500).json({ ok:false, error:'db_not_configured' });
 
-      const r = await db.query(
-        'select id, created_at, status, stripe_payment_intent_id, amount_cents, currency, smoobu_reservation_id, last_error from booking_payments where stripe_payment_intent_id = $1 limit 1',
-        [pi]
-      );
-      const row = r?.rows?.[0] || null;
-      if (!row) return res.status(404).json({ ok:false, error:'not found' });
-      return res.json({ ok:true, row });
-    } catch (e) {
-      return res.status(500).json({ ok:false, error:String(e) });
-    }
-  });
-}
 
 if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
     if (!db) return res.status(500).json({ ok:false, error:"db_not_configured" });
