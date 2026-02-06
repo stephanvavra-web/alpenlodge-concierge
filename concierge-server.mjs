@@ -1727,7 +1727,26 @@ if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
 // POST /api/reservations with fields: apartmentId, arrival, departure, firstName, lastName, email, phone, channelId, adults, children, price.
 // (We do NOT modify the existing booking flow; this is only used after payment.)
 async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
-  const firstName = String(guest?.firstName || "").trim();
+  
+  // --- Dates (DB/Offer is source of truth): use offer.arrivalDate & offer.departureDate ONLY
+  const arrival = String(offer?.arrivalDate || '').trim();
+  const departure = String(offer?.departureDate || '').trim();
+
+  if (!arrival || !departure) {
+    const err = new Error('missing_dates_for_reservation');
+    err.status = 400;
+    err.details = { arrival, departure, offer };
+    throw err;
+  }
+  // ISO YYYY-MM-DD string compare works
+  if (departure <= arrival) {
+    const err = new Error('invalid_date_order_for_reservation');
+    err.status = 400;
+    err.details = { arrival, departure, offer };
+    throw err;
+  }
+
+const firstName = String(guest?.firstName || "").trim();
   const lastName  = String(guest?.lastName  || "").trim();
   const email     = String(guest?.email     || "").trim();
   const phone     = String(guest?.phone     || "").trim();
@@ -1743,8 +1762,8 @@ async function createReservationAfterPaymentExact({ offer, guest, extras, discou
 
   const payload = {
     apartmentId: offer.apartmentId,
-    arrival: offer.arrivalDate || offer.arrival,
-    departure: offer.departureDate || offer.departure,
+    arrival: arrival,
+    departure: departure,
     firstName,
     lastName,
     email,
