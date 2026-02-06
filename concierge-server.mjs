@@ -1726,14 +1726,16 @@ if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
 // ---- Post-payment calendar entry (Smoobu) — EXACT per API reference:
 // POST /api/reservations with fields: apartmentId, arrival, departure, firstName, lastName, email, phone, channelId, adults, children, price.
 // (We do NOT modify the existing booking flow; this is only used after payment.)
-async function createReservationAfterPaymentExact({ offer, guest: guestObj, extras: extrasObj, discountCode }) {
-  const firstName = String(guest?.firstName || "").trim();
+async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
+  
+  if (!guest) { const err = new Error("guest_missing"); err.status = 500; throw err; }
+const firstName = String(guest?.firstName || "").trim();
   const lastName  = String(guest?.lastName  || "").trim();
   const email     = String(guest?.email     || "").trim();
   const phone     = String(guest?.phone     || "").trim();
   const country   = String(guest?.country   || "").trim();
   const language  = String(guest?.language  || "de").trim();
-  const addressObj = (guest?.address && typeof guestObj.address === "object") ? guestObj.address : {};
+  const addressObj = (guest?.address && typeof guest.address === "object") ? guest.address : {};
   const adults0 = Number(guest?.adults ?? offer?.guests ?? 0) || 0;
   const children0 = Number(guest?.children ?? 0) || 0;
   const guests0 = Number(offer?.guests ?? (adults0 + children0) ?? 0) || 0;
@@ -1761,9 +1763,6 @@ async function createReservationAfterPaymentExact({ offer, guest: guestObj, extr
   };
 
   // Smoobu API endpoint per reference:
-  try {
-    console.log("SMOOBU RESERVATION PAYLOAD", JSON.stringify(payload, null, 2));
-  } catch (_) {}
   return smoobuFetch("/api/reservations", { method: "POST", jsonBody: payload, timeoutMs: 25000 });
 }
 
@@ -1819,7 +1818,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
         lastName: guestObj.lastName || "",
         email: guestObj.email || "",
         phone: guestObj.phone || "",
-        address: guestObj.address || {},
+        address: guest.address || {},
         country: guestObj.country || "",
         adults: Number(guestObj.adults || offerWrapObj.offer?.guests || 0) || 0,
         children: Number(guestObj.children || 0) || 0,
