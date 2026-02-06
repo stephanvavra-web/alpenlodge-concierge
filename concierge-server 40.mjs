@@ -1702,12 +1702,13 @@ const ALLOW_COUPON = "last2026alp";
     const couponOk = (discountCode && discountCode === ALLOW_COUPON && isLastminuteSource);
 
     // Discount applies only to the accommodation base price (not extras like dogs)
-    const discountBase = couponOk ? Math.max(0, basePrice) : 0;
-    const discountAmount = couponOk ? (discountBase * (COUPON_PCT / 100)) : 0;
-    const discountAmountCents = couponOk ? cents(discountAmount) : 0;
 
-    const total = Math.max(0, basePrice + dogExtra - (discountAmountCents ? (discountAmountCents/100) : 0));
-    const amountCents = cents(total);
+    
+    // IMPORTANT: Avoid double-discount: offer.price is already discounted by Smoobu when discountCode is applied.
+    const discountAmountCents = 0;
+
+    const total = Math.max(0, basePrice + dogExtra);
+const amountCents = cents(total);
     if (!amountCents) return res.status(400).json({ ok: false, error: "invalid_amount" });
 
     const paymentId = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));

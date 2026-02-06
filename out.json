@@ -1,1 +1,0 @@
-{"ok":true,"row":{"id":"6c7c89be-6ac3-402c-869d-e9ef5b8157f1","created_at":"2026-02-05T14:42:15.039Z","status":"booking_failed","stripe_payment_intent_id":"pi_3SxTl4CknW86jmIk0GCQZFzw","amount_cents":140300,"currency":"eur","smoobu_reservation_id":null,"last_error":{"message":"\"[object Object]\" is not valid JSON"}}}
