@@ -1726,14 +1726,34 @@ if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
 // ---- Post-payment calendar entry (Smoobu) — EXACT per API reference:
 // POST /api/reservations with fields: apartmentId, arrival, departure, firstName, lastName, email, phone, channelId, adults, children, price.
 // (We do NOT modify the existing booking flow; this is only used after payment.)
-async function createReservationAfterPaymentExact({ offer, guest: guestObj, extras: extrasObj, discountCode }) {
-  const firstName = String(guest?.firstName || "").trim();
+async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
+  
+  // --- Normalize dates (arrival must be < departure)
+  const rawArrival = String(offer?.arrivalDate ?? offer?.arrival ?? "").trim();
+  const rawDeparture = String(offer?.departureDate ?? offer?.departure ?? "").trim();
+  let arrivalIso = toISODate(rawArrival);
+  let departureIso = toISODate(rawDeparture);
+  if (!arrivalIso || !departureIso) {
+    const err = new Error("missing_or_invalid_dates_for_reservation");
+    err.status = 400;
+    err.details = { rawArrival, rawDeparture, arrivalIso, departureIso };
+    throw err;
+  }
+  if (arrivalIso > departureIso) { const tmp = arrivalIso; arrivalIso = departureIso; departureIso = tmp; }
+  if (arrivalIso === departureIso) {
+    const err = new Error("invalid_date_range_for_reservation");
+    err.status = 400;
+    err.details = { arrivalIso, departureIso };
+    throw err;
+  }
+
+const firstName = String(guest?.firstName || "").trim();
   const lastName  = String(guest?.lastName  || "").trim();
   const email     = String(guest?.email     || "").trim();
   const phone     = String(guest?.phone     || "").trim();
   const country   = String(guest?.country   || "").trim();
   const language  = String(guest?.language  || "de").trim();
-  const addressObj = (guest?.address && typeof guestObj.address === "object") ? guestObj.address : {};
+  const addressObj = (guest?.address && typeof guest.address === "object") ? guest.address : {};
   const adults0 = Number(guest?.adults ?? offer?.guests ?? 0) || 0;
   const children0 = Number(guest?.children ?? 0) || 0;
   const guests0 = Number(offer?.guests ?? (adults0 + children0) ?? 0) || 0;
@@ -1743,8 +1763,8 @@ async function createReservationAfterPaymentExact({ offer, guest: guestObj, extr
 
   const payload = {
     apartmentId: offer.apartmentId,
-    arrival: offer.arrivalDate || offer.arrival,
-    departure: offer.departureDate || offer.departure,
+    arrival: arrivalIso,
+    departure: departureIso,
     firstName,
     lastName,
     email,
@@ -1816,7 +1836,7 @@ app.post("/api/payment/stripe/webhook", async (req, res) => {
         lastName: guestObj.lastName || "",
         email: guestObj.email || "",
         phone: guestObj.phone || "",
-        address: guestObj.address || {},
+        address: guest.address || {},
         country: guestObj.country || "",
         adults: Number(guestObj.adults || offerWrapObj.offer?.guests || 0) || 0,
         children: Number(guestObj.children || 0) || 0,
