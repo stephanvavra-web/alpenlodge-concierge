@@ -467,6 +467,32 @@ function toISODate(input) {
   return null;
 }
 
+// ---- AL: Normalize offer dates to strict ISO (YYYY-MM-DD) and ensure arrival < departure
+function alNormalizeOfferDates(offer) {
+  const rawArrival = String(offer?.arrivalDate ?? offer?.arrival ?? "").trim();
+  const rawDeparture = String(offer?.departureDate ?? offer?.departure ?? "").trim();
+  let arrival = toISODate(rawArrival);
+  let departure = toISODate(rawDeparture);
+
+  if (!arrival || !departure) {
+    const err = new Error("missing_or_invalid_dates_for_reservation");
+    err.status = 400;
+    err.details = { rawArrival, rawDeparture, arrival, departure };
+    throw err;
+  }
+  if (arrival > departure) {
+    const tmp = arrival; arrival = departure; departure = tmp;
+  }
+  if (arrival === departure) {
+    const err = new Error("invalid_date_range_for_reservation");
+    err.status = 400;
+    err.details = { arrival, departure };
+    throw err;
+  }
+  return { arrival, departure };
+}
+
+
 
 function detectCategory(userText) {
   const t = normText(userText);
@@ -1728,7 +1754,9 @@ if (!id) return res.status(400).json({ ok:false, error:"missing_paymentId" });
 // (We do NOT modify the existing booking flow; this is only used after payment.)
 async function createReservationAfterPaymentExact({ offer, guest, extras, discountCode }) {
   
-  if (!guest) { const err = new Error("guest_missing"); err.status = 500; throw err; }
+  
+  const { arrival, departure } = alNormalizeOfferDates(offer);
+if (!guest) { const err = new Error("guest_missing"); err.status = 500; throw err; }
 const firstName = String(guest?.firstName || "").trim();
   const lastName  = String(guest?.lastName  || "").trim();
   const email     = String(guest?.email     || "").trim();
@@ -1745,9 +1773,11 @@ const firstName = String(guest?.firstName || "").trim();
 
   const payload = {
     apartmentId: offer.apartmentId,
-    arrival: offer.arrivalDate || offer.arrival,
-    departure: offer.departureDate || offer.departure,
-    firstName,
+    arrival: arrival,
+    departure: departure,
+    
+    arrivalDate: arrival,
+    departureDate: departure,firstName,
     lastName,
     email,
     phone,
@@ -2249,11 +2279,15 @@ async function publicBookHandler(req, res) {
     }
 
     // --- Build Smoobu reservation payload ---
+        const { arrival, departure } = alNormalizeOfferDates(offer);
+
     const reservationPayload = {
       // Smoobu API expects arrivalDate/departureDate (YYYY-MM-DD)
       // Docs: https://docs.smoobu.com/#create-booking
-      arrivalDate: offer.arrivalDate,
-      departureDate: offer.departureDate,
+      arrival: arrival,
+      departure: departure,
+      arrivalDate: arrival,
+      departureDate: departure,
       apartmentId: offer.apartmentId,
       channelId: Number.isFinite(SMOOBU_CHANNEL_ID) ? SMOOBU_CHANNEL_ID : 70,
 
