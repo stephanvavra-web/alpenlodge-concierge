@@ -120,6 +120,136 @@ function scheduleChatSnapshotRefresh(reason = "event") {
   }, CHAT_SNAPSHOT_DEBOUNCE_MS);
 }
 
+// ---------------- Schema.org JSON-LD (SEO + AI) ----------------
+// Read-only machine-readable description of property + units + next N days availability/pricing (aggregated).
+// Data source: Smoobu rates snapshot (same as /api/chat/snapshot) + units mapping + optional house amenities from verified knowledge.
+
+const SCHEMA_DAYS = Number(process.env.SCHEMA_DAYS || "100");
+const SCHEMA_MAX_AGE_MS = Number(process.env.SCHEMA_MAX_AGE_MS || String(6 * 60 * 60 * 1000)); // 6h
+const SCHEMA_DEBOUNCE_MS = Number(process.env.SCHEMA_DEBOUNCE_MS || "15000");
+
+let schemaCache = { ts: 0, value: null, lastError: null, inFlight: null, pending: false, _t: null };
+
+function scheduleSchemaRefresh(reason = "event") {
+  if (schemaCache._t) clearTimeout(schemaCache._t);
+  schemaCache._t = setTimeout(async () => {
+    if (schemaCache.inFlight) { schemaCache.pending = true; return; }
+    try {
+      schemaCache.inFlight = buildSchemaJsonLd(SCHEMA_DAYS);
+      schemaCache.value = await schemaCache.inFlight;
+      schemaCache.ts = Date.now();
+      schemaCache.lastError = null;
+    } catch (e) {
+      schemaCache.lastError = { reason, message: e?.message || String(e) };
+    } finally {
+      schemaCache.inFlight = null;
+      if (schemaCache.pending) { schemaCache.pending = false; scheduleSchemaRefresh("pending"); }
+    }
+  }, SCHEMA_DEBOUNCE_MS);
+}
+
+function schemaAmenityFeaturesFromKnowledge() {
+  try {
+    const raw = loadKnowledge();
+    const k = normalizeKnowledge(raw);
+    const items = Array.isArray(k?.categories?.alpenlodge) ? k.categories.alpenlodge : [];
+    return items
+      .map((it) => ({ "@type": "LocationFeatureSpecification", name: String(it?.name || "").trim() }))
+      .filter((x) => x.name);
+  } catch {
+    return [];
+  }
+}
+
+function summarizeUnitOffer(calendar) {
+  const availDays = (Array.isArray(calendar) ? calendar : []).filter(d => d && d.available === true && Number(d.price) > 0);
+  const low = availDays.length ? Math.min(...availDays.map(d => Number(d.price))) : null;
+  const high = availDays.length ? Math.max(...availDays.map(d => Number(d.price))) : null;
+  return { anyAvail: availDays.length > 0, lowPrice: low, highPrice: high, offerCount: availDays.length };
+}
+
+async function buildSchemaJsonLd(days = SCHEMA_DAYS) {
+  const snapshot = await fetchChatSnapshot(days);
+  if (!snapshot?.ok) throw new Error("schema_snapshot_failed");
+
+  const units = Array.isArray(snapshot.units) ? snapshot.units : [];
+  const unitsMap = loadUnits();
+  const amenities = schemaAmenityFeaturesFromKnowledge();
+
+  const propertyUrl = String(process.env.PROPERTY_URL || "https://www.alpenlodge.info").replace(/\/$/, "");
+  const propertyName = String(process.env.PROPERTY_NAME || "Alpenlodge").trim();
+  const propertyDesc = String(process.env.PROPERTY_DESCRIPTION || "").trim();
+
+  const contained = units.map((u) => {
+    const apartmentId = Number(u.apartmentId);
+    const unitMeta = unitsMap.find(x => Number(x.smoobu_id) === apartmentId) || null;
+
+    const cal = Array.isArray(u.calendar) ? u.calendar : [];
+    const offerSum = summarizeUnitOffer(cal);
+
+    const unitUrl = unitMeta?.details_url
+      ? (String(unitMeta.details_url).startsWith("http") ? String(unitMeta.details_url) : (propertyUrl + String(unitMeta.details_url)))
+      : propertyUrl;
+
+    const m2 = Number(unitMeta?.m2);
+    const maxPersons = Number(unitMeta?.max_persons);
+
+    const offers = offerSum.anyAvail ? {
+      "@type": "AggregateOffer",
+      "priceCurrency": "EUR",
+      "lowPrice": offerSum.lowPrice != null ? String(offerSum.lowPrice) : undefined,
+      "highPrice": offerSum.highPrice != null ? String(offerSum.highPrice) : undefined,
+      "offerCount": String(offerSum.offerCount),
+      "availability": "https://schema.org/InStock",
+      "url": unitUrl,
+      "validFrom": snapshot.generatedAt,
+      "validThrough": addDaysIso(isoTodayVienna(), Number(days)) || undefined,
+    } : {
+      "@type": "Offer",
+      "priceCurrency": "EUR",
+      "availability": "https://schema.org/OutOfStock",
+      "url": unitUrl,
+      "validFrom": snapshot.generatedAt,
+      "validThrough": addDaysIso(isoTodayVienna(), Number(days)) || undefined,
+    };
+
+    return {
+      "@type": "Apartment",
+      "name": unitMeta?.name || u.name || `Apartment ${apartmentId}`,
+      "url": unitUrl,
+      "identifier": String(apartmentId),
+      "floorSize": (Number.isFinite(m2) ? { "@type": "QuantitativeValue", "value": m2, "unitCode": "MTK" } : undefined),
+      "occupancy": (Number.isFinite(maxPersons) ? { "@type": "QuantitativeValue", "value": maxPersons } : undefined),
+      "offers": offers,
+    };
+  });
+
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "ApartmentComplex",
+    "name": propertyName,
+    "description": (propertyDesc || undefined),
+    "url": propertyUrl,
+    "amenityFeature": (amenities.length ? amenities : undefined),
+    "containsPlace": contained,
+    "dateModified": new Date().toISOString(),
+  };
+
+  const clean = (obj) => {
+    if (Array.isArray(obj)) return obj.map(clean).filter(x => x !== undefined);
+    if (obj && typeof obj === "object") {
+      const out = {};
+      for (const [k,v] of Object.entries(obj)) {
+        if (v === undefined || v === null || (Array.isArray(v) && v.length === 0)) continue;
+        out[k] = clean(v);
+      }
+      return out;
+    }
+    return obj;
+  };
+  return clean(schema);
+}
+
 
 // ---------------- Verified knowledge (NO HALLUCINATIONS) ----------------
 // The concierge must ONLY recommend items that exist in this file. If an item isn't here,
@@ -1640,9 +1770,58 @@ app.get("/chat/snapshot", (req, res) => {
   res.redirect(302, "/api/chat/snapshot" + q);
 });
 
+
+
+// ---------------- Schema JSON-LD API ----------------
+app.get("/api/schema/jsonld", async (req, res) => {
+  try {
+    const fresh = schemaCache.value && schemaCache.ts && (Date.now() - schemaCache.ts) < SCHEMA_MAX_AGE_MS;
+    if (!fresh) {
+      if (!schemaCache.inFlight) schemaCache.inFlight = buildSchemaJsonLd(SCHEMA_DAYS);
+      const val = await schemaCache.inFlight;
+      schemaCache.value = val;
+      schemaCache.ts = Date.now();
+      schemaCache.lastError = null;
+      schemaCache.inFlight = null;
+    }
+    res.setHeader("Content-Type", "application/ld+json; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.status(200).send(JSON.stringify(schemaCache.value || {}, null, 2));
+  } catch (e) {
+    schemaCache.lastError = { message: e?.message || String(e) };
+    return res.status(500).json({ ok:false, error:"schema_error", details: schemaCache.lastError });
+  }
+});
+
+app.post("/api/schema/refresh", async (req, res) => {
+  if (!requireAdmin(req)) return res.status(403).json({ ok:false, error:"forbidden" });
+  try {
+    const val = await buildSchemaJsonLd(SCHEMA_DAYS);
+    schemaCache.value = val;
+    schemaCache.ts = Date.now();
+    schemaCache.lastError = null;
+    return res.json({ ok:true, ts: schemaCache.ts });
+  } catch (e) {
+    schemaCache.lastError = { message: e?.message || String(e) };
+    return res.status(500).json({ ok:false, error:"schema_error", details: schemaCache.lastError });
+  }
+});
+
+app.get("/api/debug/schema", (req, res) => {
+  res.json({
+    ok: true,
+    ts: schemaCache.ts || 0,
+    ageMs: schemaCache.ts ? (Date.now() - schemaCache.ts) : null,
+    lastError: schemaCache.lastError,
+    inFlight: Boolean(schemaCache.inFlight),
+    days: SCHEMA_DAYS,
+  });
+});
+
 // Optional webhook trigger (Smoobu can POST events)
 app.post("/api/smoobu/webhook", (req, res) => {
   scheduleChatSnapshotRefresh("smoobu_webhook");
+  scheduleSchemaRefresh("smoobu_webhook");
   res.json({ ok: true });
 });
 
@@ -2366,6 +2545,7 @@ async function publicBookHandler(req, res) {
     }
 
     scheduleChatSnapshotRefresh('booking');
+    scheduleSchemaRefresh('booking');
 
     return res.status(200).json({
       ok: true,
