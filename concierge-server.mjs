@@ -120,136 +120,6 @@ function scheduleChatSnapshotRefresh(reason = "event") {
   }, CHAT_SNAPSHOT_DEBOUNCE_MS);
 }
 
-// ---------------- Schema.org JSON-LD (SEO + AI) ----------------
-// Read-only machine-readable description of property + units + next N days availability/pricing (aggregated).
-// Data source: Smoobu rates snapshot (same as /api/chat/snapshot) + units mapping + optional house amenities from verified knowledge.
-
-const SCHEMA_DAYS = Number(process.env.SCHEMA_DAYS || "100");
-const SCHEMA_MAX_AGE_MS = Number(process.env.SCHEMA_MAX_AGE_MS || String(6 * 60 * 60 * 1000)); // 6h
-const SCHEMA_DEBOUNCE_MS = Number(process.env.SCHEMA_DEBOUNCE_MS || "15000");
-
-let schemaCache = { ts: 0, value: null, lastError: null, inFlight: null, pending: false, _t: null };
-
-function scheduleSchemaRefresh(reason = "event") {
-  if (schemaCache._t) clearTimeout(schemaCache._t);
-  schemaCache._t = setTimeout(async () => {
-    if (schemaCache.inFlight) { schemaCache.pending = true; return; }
-    try {
-      schemaCache.inFlight = buildSchemaJsonLd(SCHEMA_DAYS);
-      schemaCache.value = await schemaCache.inFlight;
-      schemaCache.ts = Date.now();
-      schemaCache.lastError = null;
-    } catch (e) {
-      schemaCache.lastError = { reason, message: e?.message || String(e) };
-    } finally {
-      schemaCache.inFlight = null;
-      if (schemaCache.pending) { schemaCache.pending = false; scheduleSchemaRefresh("pending"); }
-    }
-  }, SCHEMA_DEBOUNCE_MS);
-}
-
-function schemaAmenityFeaturesFromKnowledge() {
-  try {
-    const raw = loadKnowledge();
-    const k = normalizeKnowledge(raw);
-    const items = Array.isArray(k?.categories?.alpenlodge) ? k.categories.alpenlodge : [];
-    return items
-      .map((it) => ({ "@type": "LocationFeatureSpecification", name: String(it?.name || "").trim() }))
-      .filter((x) => x.name);
-  } catch {
-    return [];
-  }
-}
-
-function summarizeUnitOffer(calendar) {
-  const availDays = (Array.isArray(calendar) ? calendar : []).filter(d => d && d.available === true && Number(d.price) > 0);
-  const low = availDays.length ? Math.min(...availDays.map(d => Number(d.price))) : null;
-  const high = availDays.length ? Math.max(...availDays.map(d => Number(d.price))) : null;
-  return { anyAvail: availDays.length > 0, lowPrice: low, highPrice: high, offerCount: availDays.length };
-}
-
-async function buildSchemaJsonLd(days = SCHEMA_DAYS) {
-  const snapshot = await fetchChatSnapshot(days);
-  if (!snapshot?.ok) throw new Error("schema_snapshot_failed");
-
-  const units = Array.isArray(snapshot.units) ? snapshot.units : [];
-  const unitsMap = loadUnits();
-  const amenities = schemaAmenityFeaturesFromKnowledge();
-
-  const propertyUrl = String(process.env.PROPERTY_URL || "https://www.alpenlodge.info").replace(/\/$/, "");
-  const propertyName = String(process.env.PROPERTY_NAME || "Alpenlodge").trim();
-  const propertyDesc = String(process.env.PROPERTY_DESCRIPTION || "").trim();
-
-  const contained = units.map((u) => {
-    const apartmentId = Number(u.apartmentId);
-    const unitMeta = unitsMap.find(x => Number(x.smoobu_id) === apartmentId) || null;
-
-    const cal = Array.isArray(u.calendar) ? u.calendar : [];
-    const offerSum = summarizeUnitOffer(cal);
-
-    const unitUrl = unitMeta?.details_url
-      ? (String(unitMeta.details_url).startsWith("http") ? String(unitMeta.details_url) : (propertyUrl + String(unitMeta.details_url)))
-      : propertyUrl;
-
-    const m2 = Number(unitMeta?.m2);
-    const maxPersons = Number(unitMeta?.max_persons);
-
-    const offers = offerSum.anyAvail ? {
-      "@type": "AggregateOffer",
-      "priceCurrency": "EUR",
-      "lowPrice": offerSum.lowPrice != null ? String(offerSum.lowPrice) : undefined,
-      "highPrice": offerSum.highPrice != null ? String(offerSum.highPrice) : undefined,
-      "offerCount": String(offerSum.offerCount),
-      "availability": "https://schema.org/InStock",
-      "url": unitUrl,
-      "validFrom": snapshot.generatedAt,
-      "validThrough": addDaysIso(isoTodayVienna(), Number(days)) || undefined,
-    } : {
-      "@type": "Offer",
-      "priceCurrency": "EUR",
-      "availability": "https://schema.org/OutOfStock",
-      "url": unitUrl,
-      "validFrom": snapshot.generatedAt,
-      "validThrough": addDaysIso(isoTodayVienna(), Number(days)) || undefined,
-    };
-
-    return {
-      "@type": "Apartment",
-      "name": unitMeta?.name || u.name || `Apartment ${apartmentId}`,
-      "url": unitUrl,
-      "identifier": String(apartmentId),
-      "floorSize": (Number.isFinite(m2) ? { "@type": "QuantitativeValue", "value": m2, "unitCode": "MTK" } : undefined),
-      "occupancy": (Number.isFinite(maxPersons) ? { "@type": "QuantitativeValue", "value": maxPersons } : undefined),
-      "offers": offers,
-    };
-  });
-
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "ApartmentComplex",
-    "name": propertyName,
-    "description": (propertyDesc || undefined),
-    "url": propertyUrl,
-    "amenityFeature": (amenities.length ? amenities : undefined),
-    "containsPlace": contained,
-    "dateModified": new Date().toISOString(),
-  };
-
-  const clean = (obj) => {
-    if (Array.isArray(obj)) return obj.map(clean).filter(x => x !== undefined);
-    if (obj && typeof obj === "object") {
-      const out = {};
-      for (const [k,v] of Object.entries(obj)) {
-        if (v === undefined || v === null || (Array.isArray(v) && v.length === 0)) continue;
-        out[k] = clean(v);
-      }
-      return out;
-    }
-    return obj;
-  };
-  return clean(schema);
-}
-
 
 // ---------------- Verified knowledge (NO HALLUCINATIONS) ----------------
 // The concierge must ONLY recommend items that exist in this file. If an item isn't here,
@@ -596,6 +466,70 @@ function toISODate(input) {
 
   return null;
 }
+
+// ---------------- Concierge Power Pack: knowledge + unit lookup + weather + safe search ----------------
+function alNorm(s){ return String(s||"").trim(); }
+
+function alLoadJsonSafe(p){
+  try { return JSON.parse(fs.readFileSync(p,"utf8")); } catch { return null; }
+}
+
+function alLoadKnowledgeFile(locale, name){
+  const base = path.resolve(process.cwd(), "knowledge");
+  const cand = [
+    path.join(base, `${name}.${locale}.json`),
+    path.join(base, `${name}.de.json`),
+    path.join(base, `${name}.en.json`),
+    path.join(base, `${name}.json`),
+  ];
+  for (const p of cand){ if (fs.existsSync(p)) return alLoadJsonSafe(p); }
+  return null;
+}
+
+function alLoadUnitsIndex(){
+  // Prefer api/units.json from homepage repo exports if present, else knowledge/units.*.json
+  const p1 = path.resolve(process.cwd(), "api/units.json");
+  if (fs.existsSync(p1)) {
+    try {
+      const j = JSON.parse(fs.readFileSync(p1,"utf8"));
+      if (Array.isArray(j.units)) return j.units;
+    } catch {}
+  }
+  const k = alLoadKnowledgeFile("de","units");
+  return (k && Array.isArray(k.units)) ? k.units : [];
+}
+
+function alResolveUnit(query){
+  const q = alNorm(query);
+  if (!q) return null;
+  const units = alLoadUnitsIndex();
+  const qlow = q.toLowerCase();
+
+  // Match "FeWo 13" / "Ferienwohnung 13" / "Apartment 13" / "13"
+  const m = qlow.match(/(fewo|ferienwohnung|apartment)\s*(\d+)/) || qlow.match(/^(\d{1,2})$/);
+  if (m){
+    const n = parseInt(m[m.length-1],10);
+    const byId = units.find(u => Number(u.unit_id)===n || Number(u.unit?.unit_id)===n);
+    if (byId) return byId.unit || byId;
+  }
+
+  const byName = units.find(u => (u.name||u.unit?.name||"").toLowerCase()===qlow);
+  if (byName) return byName.unit || byName;
+
+  const cand = units.find(u => (u.name||u.unit?.name||"").toLowerCase().includes(qlow));
+  return cand ? (cand.unit||cand) : null;
+}
+
+// Weather via Open-Meteo (no API keys)
+async function alFetchWeather(days=7){
+  const lat = Number(process.env.PROPERTY_LAT || "47.5884514057");
+  const lon = Number(process.env.PROPERTY_LON || "12.0333353816");
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max&timezone=Europe%2FVienna&forecast_days=${encodeURIComponent(days)}`;
+  const r = await fetch(url, { cache:"no-store" });
+  if (!r.ok) throw new Error("weather_fetch_failed");
+  return await r.json();
+}
+
 
 // ---- AL: Normalize offer dates to strict ISO (YYYY-MM-DD) and ensure arrival < departure
 function alNormalizeOfferDates(offer) {
@@ -1770,58 +1704,9 @@ app.get("/chat/snapshot", (req, res) => {
   res.redirect(302, "/api/chat/snapshot" + q);
 });
 
-
-
-// ---------------- Schema JSON-LD API ----------------
-app.get("/api/schema/jsonld", async (req, res) => {
-  try {
-    const fresh = schemaCache.value && schemaCache.ts && (Date.now() - schemaCache.ts) < SCHEMA_MAX_AGE_MS;
-    if (!fresh) {
-      if (!schemaCache.inFlight) schemaCache.inFlight = buildSchemaJsonLd(SCHEMA_DAYS);
-      const val = await schemaCache.inFlight;
-      schemaCache.value = val;
-      schemaCache.ts = Date.now();
-      schemaCache.lastError = null;
-      schemaCache.inFlight = null;
-    }
-    res.setHeader("Content-Type", "application/ld+json; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=300");
-    return res.status(200).send(JSON.stringify(schemaCache.value || {}, null, 2));
-  } catch (e) {
-    schemaCache.lastError = { message: e?.message || String(e) };
-    return res.status(500).json({ ok:false, error:"schema_error", details: schemaCache.lastError });
-  }
-});
-
-app.post("/api/schema/refresh", async (req, res) => {
-  if (!requireAdmin(req)) return res.status(403).json({ ok:false, error:"forbidden" });
-  try {
-    const val = await buildSchemaJsonLd(SCHEMA_DAYS);
-    schemaCache.value = val;
-    schemaCache.ts = Date.now();
-    schemaCache.lastError = null;
-    return res.json({ ok:true, ts: schemaCache.ts });
-  } catch (e) {
-    schemaCache.lastError = { message: e?.message || String(e) };
-    return res.status(500).json({ ok:false, error:"schema_error", details: schemaCache.lastError });
-  }
-});
-
-app.get("/api/debug/schema", (req, res) => {
-  res.json({
-    ok: true,
-    ts: schemaCache.ts || 0,
-    ageMs: schemaCache.ts ? (Date.now() - schemaCache.ts) : null,
-    lastError: schemaCache.lastError,
-    inFlight: Boolean(schemaCache.inFlight),
-    days: SCHEMA_DAYS,
-  });
-});
-
 // Optional webhook trigger (Smoobu can POST events)
 app.post("/api/smoobu/webhook", (req, res) => {
   scheduleChatSnapshotRefresh("smoobu_webhook");
-  scheduleSchemaRefresh("smoobu_webhook");
   res.json({ ok: true });
 });
 
@@ -2545,7 +2430,6 @@ async function publicBookHandler(req, res) {
     }
 
     scheduleChatSnapshotRefresh('booking');
-    scheduleSchemaRefresh('booking');
 
     return res.status(200).json({
       ok: true,
@@ -2890,4 +2774,72 @@ const PORT = process.env.PORT || 3001;
     console.error("🗄️ DB init error:", e?.message || e);
   }
 })();
+
+
+// ---------------- Concierge Power Pack Endpoints ----------------
+app.get("/api/concierge/unit", (req,res)=>{
+  const u = alResolveUnit(req.query.q);
+  if (!u) return res.status(404).json({ ok:false, error:"not_found" });
+  res.json({ ok:true, unit:u });
+});
+
+app.get("/api/concierge/house-rules", (req,res)=>{
+  const lang = (req.query.lang==="en") ? "en" : "de";
+  const rules = alLoadKnowledgeFile(lang, "house_rules") || {};
+  res.json({ ok:true, rules });
+});
+
+app.get("/api/concierge/jokes", (req,res)=>{
+  const lang = (req.query.lang==="en") ? "en" : "de";
+  const j = alLoadKnowledgeFile(lang, "jokes") || { jokes: [] };
+  const list = Array.isArray(j.jokes) ? j.jokes : [];
+  const n = Math.min(10, Math.max(1, Number(req.query.n||"3")));
+  const out = [];
+  for (let i=0;i<n;i++) out.push(list[Math.floor(Math.random()*list.length)] || "");
+  res.json({ ok:true, jokes: out.filter(Boolean) });
+});
+
+app.get("/api/concierge/weather", async (req,res)=>{
+  try{
+    const days = Math.min(14, Math.max(1, Number(req.query.days||"7")));
+    const weather = await alFetchWeather(days);
+    res.json({ ok:true, weather });
+  } catch(e){
+    res.status(500).json({ ok:false, error: e?.message || String(e) });
+  }
+});
+
+// 50km search: ONLY from in-house knowledge categories (no lodging), no hallucinations
+app.get("/api/concierge/search", (req,res)=>{
+  const q = alNorm(req.query.q).toLowerCase();
+  const radius = Math.min(50, Math.max(1, Number(req.query.radius||"50")));
+  const nk = normalizeKnowledge(loadKnowledge());
+  const cats = nk?.categories || {};
+  const items = [];
+
+  for (const [cat, arr] of Object.entries(cats)){
+    if (!Array.isArray(arr)) continue;
+    for (const it of arr){
+      const name = String(it?.name||"");
+      const sum = String(it?.summary||"");
+      const km = (typeof it?.approx_km_road === "number") ? it.approx_km_road : null;
+      if (km!=null && km>radius) continue;
+
+      const blob = (name+" "+sum).toLowerCase();
+      if (blob.match(/\bhotel\b|\bpension\b|\bgasthof\b|\bunterkunft\b|\bferienwohnung\b|\bzimmer\b/)) continue;
+
+      if (!q || blob.includes(q)) items.push({ cat, name, summary: sum, approx_km_road: km, url: it?.url||it?.sourceUrl||null });
+    }
+  }
+
+  const seen = new Set(); const out=[];
+  for (const it of items){
+    const key = (it.name||"").toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key); out.push(it);
+  }
+  out.sort((a,b)=> (a.approx_km_road??999)-(b.approx_km_road??999));
+  res.json({ ok:true, radius_km: radius, results: out.slice(0,20) });
+});
+
 app.listen(PORT, () => console.log(`🤖 Concierge listening on ${PORT}`));

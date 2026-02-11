@@ -1,0 +1,20 @@
+{
+  "meta": {
+    "source": "config",
+    "ingested_at": "2026-02-11",
+    "language": "de"
+  },
+  "checkin": {
+    "time": null,
+    "text": "Check-in ist nach deiner Online-Voranmeldung möglich. Die genaue Uhrzeit steht in deiner Buchungsbestätigung."
+  },
+  "checkout": {
+    "time": null,
+    "text": "Check-out Zeiten stehen in deiner Buchungsbestätigung."
+  },
+  "online_checkin": {
+    "required": true,
+    "url": "https://guest.chekin.com/AbWL5J5Su1au4h4e6SMXUtwF",
+    "text": "Online Check-in (Voranmeldung) ist vor der Anreise verpflichtend – sonst kann kein Schlüsselcode ausgegeben werden."
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "source": "website",
+    "ingested_at": "2026-02-11",
+    "language": "de"
+  },
+  "topics": [
+    {
+      "id": "homepage_summary",
+      "title": "Alpenlodge Website – Inhalte (Kurzfassung)",
+      "category": "homepage",
+      "sections": [
+        {
+          "title": "Hero",
+          "text": "Familienfreundliche Apartments & Suiten in Thiersee"
+        },
+        {
+          "title": "Aktivitäten & Highlights Entspannung  & Ruhe",
+          "text": "Zu jeder Jahreszeit anders schön – hier findest du Inspiration für deinen Aufenthalt. Winter ❄️ Frühling 🌸 Sommer ☀️ Herbst 🍂"
+        },
+        {
+          "title": "Apartments",
+          "text": "Gemütliche Ferienwohnungen für Paare, Familien und alle, die im Urlaub gerne flexibel bleiben. Preisbewusst Familienfreundlich"
+        },
+        {
+          "title": "Suiten",
+          "text": "Mehr Raum und Komfort – ideal für Paare, die Ruhe und ein bisschen Extra-Komfort schätzen. Mehr Platz Ruhige Lage"
+        },
+        {
+          "title": "Premium Suiten",
+          "text": "Stilvolle Premium Suiten mit alpinem Flair – alle mit Infrarot-Sauna oder Badewanne zum Entspannen. Hochwertig Private Spa"
+        },
+        {
+          "title": "Ruhige Lage in Thiersee",
+          "text": "Abseits vom Trubel, aber schnell in Kufstein, am See oder auf der Piste."
+        },
+        {
+          "title": "Ideal für Familien & Paare",
+          "text": "Von der FeWo bis zur Premium Suite – viel Platz, flexible Anreise, fair kalkuliert."
+        },
+        {
+          "title": "Hunde willkommen",
+          "text": "Gassiwege direkt vor der Tür, Natur rundherum – perfekt für Urlaub mit Hund."
+        },
+        {
+          "title": "Kontakt & Anreise",
+          "text": "Adresse Alpenlodge Thiersee Landl 37 6335 Thiersee Österreich Telefon: +49 15678 769810 E-Mail: Auf Google Maps ansehen So erreichst du uns Mit dem Auto erreichst du Thiersee über die Inntalautobahn (A12) Ausfahrt Kufstein und weiter in Richtung Thiersee / Landl.\n          Mit der Bahn fährst du bis Kufstein und nutzt anschließend Bus oder Taxi zur Alpenlodge."
+        },
+        {
+          "title": "Adresse",
+          "text": "Alpenlodge Thiersee Landl 37 6335 Thiersee Österreich Telefon: +49 15678 769810 E-Mail: Auf Google Maps ansehen"
+        },
+        {
+          "title": "So erreichst du uns",
+          "text": "Mit dem Auto erreichst du Thiersee über die Inntalautobahn (A12) Ausfahrt Kufstein und weiter in Richtung Thiersee / Landl.\n          Mit der Bahn fährst du bis Kufstein und nutzt anschließend Bus oder Taxi zur Alpenlodge."
+        }
+      ]
+    }
+  ]
+}

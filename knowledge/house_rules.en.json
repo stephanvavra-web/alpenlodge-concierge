@@ -1,0 +1,20 @@
+{
+  "meta": {
+    "source": "config",
+    "ingested_at": "2026-02-11",
+    "language": "en"
+  },
+  "checkin": {
+    "time": null,
+    "text": "Check-in is possible after completing the online pre-registration. Exact times are in your booking confirmation."
+  },
+  "checkout": {
+    "time": null,
+    "text": "Check-out times are listed in your booking confirmation."
+  },
+  "online_checkin": {
+    "required": true,
+    "url": "https://guest.chekin.com/AbWL5J5Su1au4h4e6SMXUtwF",
+    "text": "Online check-in (pre-registration) is required before arrival; otherwise we cannot issue a key code."
+  }
+}
