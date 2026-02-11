@@ -1,0 +1,343 @@
+{
+  "base": {
+    "meta": {
+      "id": "alpenlodge-ac-knowledge-de",
+      "version": "1.0.0",
+      "updated": "2026-01-09",
+      "language": "de",
+      "scope": "info_only",
+      "rules": {
+        "no_price_promises": true,
+        "no_availability_claims": true,
+        "no_inventing": true,
+        "use_links_when_unsure": true
+      }
+    },
+    "brand": {
+      "name": "Alpenlodge",
+      "location_label": "Alpenlodge · Thiersee · Tirol",
+      "hero": {
+        "headline": "Familienfreundliche Apartments & Suiten in Thiersee",
+        "subline": "300 m zum Naturbad Landl · Hunde willkommen · Ganzjahresurlaub zwischen See & Bergen"
+      }
+    },
+    "contact": {
+      "address": {
+        "street": "Landl 37",
+        "postal_code": "6335",
+        "city": "Thiersee",
+        "country": "Österreich"
+      },
+      "phone": "+49 15678 769810",
+      "maps_url": "https://www.google.com/maps?q=Alpenlodge+Thiersee+Landl+37"
+    },
+    "booking": {
+      "primary_booking_path": "/buchen/",
+      "cta_labels": {
+        "check_availability": "Verfügbarkeit prüfen",
+        "book_online": "Online buchen"
+      },
+      "notes": [
+        "Für Verfügbarkeit & Preis bitte immer direkt über die Buchungsseite prüfen."
+      ]
+    },
+    "accommodations": {
+      "overview_path": "/pages/alle-unterkuenfte.html",
+      "categories": [
+        {
+          "key": "apartments",
+          "title": "Apartments",
+          "description": "Gemütliche Ferienwohnungen für Paare, Familien und alle, die im Urlaub gerne flexibel bleiben."
+        },
+        {
+          "key": "suites",
+          "title": "Suiten",
+          "description": "Mehr Raum und Komfort – ideal für Paare, die Ruhe und ein bisschen Extra-Komfort schätzen."
+        },
+        {
+          "key": "premium_suites",
+          "title": "Premium Suiten",
+          "description": "Stilvolle Premium Suiten mit alpinem Flair – alle mit Infrarot-Sauna oder Badewanne zum Entspannen."
+        }
+      ],
+      "why_alpenlodge": [
+        {
+          "title": "Ruhige Lage in Thiersee",
+          "text": "Abseits vom Trubel, aber schnell in Kufstein, am See oder auf der Piste."
+        },
+        {
+          "title": "Ideal für Familien & Paare",
+          "text": "Von der FeWo bis zur Premium Suite – viel Platz, flexible Anreise, fair kalkuliert."
+        },
+        {
+          "title": "Hunde willkommen",
+          "text": "Gassiwege direkt vor der Tür, Natur rundherum – perfekt für Urlaub mit Hund."
+        }
+      ]
+    },
+    "activities_pages": {
+      "winter": "/pages/aktivitaeten-winter.html",
+      "spring": "/pages/aktivitaeten-fruehling.html",
+      "summer": "/pages/aktivitaeten-sommer.html",
+      "autumn": "/pages/aktivitaeten-herbst.html"
+    },
+    "legal": {
+      "imprint": "/impressum.html",
+      "privacy": "/datenschutz.html"
+    },
+    "conversation": {
+      "quick_actions": [
+        {
+          "id": "qa_availability",
+          "label": "Verfügbarkeit prüfen",
+          "type": "link",
+          "value": "/buchen/"
+        },
+        {
+          "id": "qa_accommodations",
+          "label": "Unterkünfte ansehen",
+          "type": "link",
+          "value": "/pages/alle-unterkuenfte.html"
+        },
+        {
+          "id": "qa_arrival",
+          "label": "Anreise & Lage",
+          "type": "topic",
+          "value": "arrival"
+        },
+        {
+          "id": "qa_activities",
+          "label": "Aktivitäten",
+          "type": "topic",
+          "value": "activities"
+        },
+        {
+          "id": "qa_contact",
+          "label": "Kontakt",
+          "type": "topic",
+          "value": "contact"
+        }
+      ],
+      "fallback_answer": "Dazu habe ich gerade keine verlässliche Info. Am schnellsten findest du es hier: /buchen/ oder melde dich telefonisch unter +49 15678 769810."
+    }
+  },
+  "region": {
+    "meta": {
+      "id": "alpenlodge-ac-region-de",
+      "version": "1.0.0",
+      "updated": "2026-01-09",
+      "language": "de"
+    },
+    "regions": [
+      {
+        "key": "kufsteinerland",
+        "name": "Kufsteinerland",
+        "positioning": "Naturerlebnis trifft Kultur – rund um Kufstein, das Kaisergebirge und die Thiersee-Region.",
+        "highlights": [
+          "Festung Kufstein als markantes Wahrzeichen über der Stadt",
+          "Naturerlebnis Kaisergebirge: Wandern, Aussichtspunkte, Hütten & Familienrouten",
+          "Thiersee-Region: Natur- & Badeseen, Spazierwege und ruhige Dörfer"
+        ],
+        "mobility_and_card": {
+          "name": "KufsteinerlandCard",
+          "summary": "Gästekarte ab der 1. Übernachtung mit zahlreichen Inklusivleistungen, Mobilitätsangeboten und einem ganzjährigen Erlebnisprogramm im Kufsteinerland.",
+          "typical_benefits_examples": [
+            "Ausgewählte Eintritte/Ausflüge (z. B. Festung Kufstein – je nach aktueller Card-Leistung)",
+            "Öffentliche Verkehrsmittel und Shuttle-/Skibus-Angebote (je nach Saison)"
+          ],
+          "official_info_url": "https://www.kufstein.com/de/kufsteinerlandcard.html",
+          "how_to_get": "Du erhältst die KufsteinerlandCard kostenlos ab der 1. Übernachtung bei teilnehmenden Betrieben. Die Card ist nicht übertragbar und muss bei Leistungen vorgezeigt werden.",
+          "contact": {
+            "email": "booking@kufstein.com",
+            "phone": "+43 5372 62207"
+          },
+          "included_services": [
+            {
+              "name": "Festung Kufstein",
+              "note": "Eintritt inkl. Panoramalift (1×)."
+            },
+            {
+              "name": "Weihnachtszauber Festung Kufstein",
+              "note": "Eintritt während der Weihnachtszeit (laut Programm)."
+            },
+            {
+              "name": "Fohlenhof Ebbs",
+              "note": "Eintritt (1×)."
+            },
+            {
+              "name": "Riedel Glas – Tiroler Glashütte",
+              "note": "Werksbesichtigung (laut Öffnungszeiten)."
+            },
+            {
+              "name": "Kaiserlift Kufstein",
+              "note": "1 Berg- & Talfahrt inkludiert; Naturerlebnis-Programme am Kaiserlift."
+            },
+            {
+              "name": "Öffentliche Verkehrsmittel (regional)",
+              "note": "Ausgewählte Linien im Kufsteinerland (je nach Saison/Leistung)."
+            },
+            {
+              "name": "Innfähre",
+              "note": "Mai–Oktober (je nach Betrieb)."
+            },
+            {
+              "name": "VVT Regiorad",
+              "note": "erste 30 Minuten kostenlos."
+            },
+            {
+              "name": "Eisarena Kufstein",
+              "note": "50% Ermäßigung Mo–Do."
+            },
+            {
+              "name": "Freischwimmbad Kufstein",
+              "note": "50% Ermäßigung Mo–Do."
+            },
+            {
+              "name": "Langlauf Bayrischzell",
+              "note": "Ermäßigung/Eintritt laut Leistung."
+            },
+            {
+              "name": "Erlebnisberg Oberaudorf – Hocheck",
+              "note": "Ermäßigung laut Leistung."
+            }
+          ],
+          "experience_program": {
+            "winter_period": "01.12.2025–20.03.2026",
+            "summer_period": "30.03.2026–20.11.2026",
+            "note": "Viele Programmpunkte sind mit Card kostenlos; ohne Card fällt meist ein Teilnahmebeitrag (z. B. 10 €) an. Anmeldung/Plätze je Programmpunkt beachten.",
+            "winter": [
+              "Nachtwächterführung Kufstein",
+              "Filmreise Kufstein",
+              "Festspielhaus Erl – Führung",
+              "Sonnbergwanderung",
+              "Kutschenfahrt Ebbs",
+              "Räuchern nach alter Tradition",
+              "Whisky-/Rum-/Gin-Verkostungen",
+              "Denkmälerspaziergang",
+              "Fackelwanderung Thiersee",
+              "Krippenwanderung",
+              "Workshop Salbenküche",
+              "Gipfelglück am Pendling",
+              "Yoga im Wald",
+              "Yoga am Brentenjoch"
+            ],
+            "summer": [
+              "Yoga am See",
+              "Rundwanderung Thierbergkapelle",
+              "Genuss-Radtour Hinterschachnerhof",
+              "Kräuterexkursion",
+              "Whisky-/Gin-Verkostungen",
+              "Sonnenaufgang Feuerköpfl",
+              "Sommerwanderung Niederndorferberg",
+              "Stadtführung Kufstein",
+              "Gipfelglück am Pendling",
+              "Yoga im Wald",
+              "Yoga am Brentenjoch",
+              "Kaiserlift-Naturerlebnisprogramme"
+            ]
+          },
+          "internal_sources": {
+            "pdf": "kufsteinerland-card.pdf",
+            "note": "Inhalte intern integriert; in Antworten keine Links ausgeben, wenn nicht ausdrücklich gefragt."
+          }
+        },
+        "family_tips": [
+          "Kurze, kinderfreundliche Wege im Tal + leichte Panorama-Routen",
+          "Schlechtwetter-Option: Stadt Kufstein (Museen/Indoor) & Cafés"
+        ],
+        "seasonality": {
+          "summer": [
+            "Wandern & Biken im Kaisergebirge",
+            "Badeseen & Naturplätze in der Umgebung"
+          ],
+          "winter": [
+            "Wintersport in der Umgebung (Skigebiete in Reichweite)",
+            "Winterwandern & ruhige Aussichtsrouten"
+          ]
+        },
+        "links": [
+          {
+            "label": "Kufsteinerland (offiziell)",
+            "url": "https://www.kufstein.com/de/tirol-ausfluege-kultur.html"
+          },
+          {
+            "label": "Thiersee-See (Info)",
+            "url": "https://www.kufstein.com/en/thiersee/info/thiersee-lake.html"
+          }
+        ]
+      },
+      {
+        "key": "kitzbuehel",
+        "name": "Kitzbühel & Kitzbüheler Alpen",
+        "positioning": "Legendärer Sport- und Lifestyle-Ort mit starkem Sommer- und Winterprogramm.",
+        "highlights": [
+          "Hahnenkamm-Rennen (Streif) – weltbekanntes Ski-Event",
+          "Altstadt & Gastronomie – von traditionell bis gehoben",
+          "Sommer: Themenwege, Panorama-Wanderungen, Biken & Familienangebote"
+        ],
+        "family_tips": [
+          "Streif Sommererlebnis (Familien-/Kinderstationen entlang eines Themenwegs)",
+          "Bergbahnen/Erlebnisangebote im Sommer (je nach Saison/Öffnung)"
+        ],
+        "seasonality": {
+          "summer": [
+            "Themenwege & Erlebnisstationen (z. B. Streif Sommererlebnis)",
+            "Wandern & Biken in den Kitzbüheler Alpen"
+          ],
+          "winter": [
+            "Skifahren & Events rund um Kitzbühel",
+            "Winterspaziergänge & Genussprogramm"
+          ]
+        },
+        "links": [
+          {
+            "label": "Kitzbühel (offiziell)",
+            "url": "https://www.kitzbuehel.com/en/"
+          },
+          {
+            "label": "Streif Sommererlebnis",
+            "url": "https://www.kitzski.at/en/hiking-biking/family-kids/streif-summer-experience.html"
+          }
+        ]
+      },
+      {
+        "key": "achensee",
+        "name": "Achensee",
+        "positioning": "Tirols größter See zwischen Karwendel und Rofan – „Berg & See“ für Aktivurlaub und Erholung.",
+        "highlights": [
+          "Tirols größter See mit Bade- & Wassersportmöglichkeiten",
+          "Karwendel/Rofan: Wandern, Biken, Winterwandern",
+          "Atoll Achensee (Freizeit-/Erlebnisbereich – je nach Saison Angebote wie Eislaufen)"
+        ],
+        "family_tips": [
+          "Leichte Seeufer-Spaziergänge + Spiel-/Badebereiche",
+          "Wassersport: von Baden bis Segeln/Surfen (saisonabhängig)"
+        ],
+        "seasonality": {
+          "summer": [
+            "Baden, SUP, Segeln/Surfen (saisonabhängig)",
+            "Wandern/Biken zwischen Karwendel und Rofan"
+          ],
+          "winter": [
+            "Winterwandern-Programme (saison- und schneebedingt)",
+            "Eis-/Winterangebote am Atoll (saisonabhängig)"
+          ]
+        },
+        "links": [
+          {
+            "label": "Achensee (offiziell)",
+            "url": "https://www.achensee.com/en/"
+          },
+          {
+            "label": "Sommer am Achensee",
+            "url": "https://www.achensee.com/en/summer/"
+          }
+        ]
+      }
+    ],
+    "answer_templates": {
+      "region_overview": "In der Region gibt’s je nach Saison tolle Optionen – möchtest du eher Natur (Wandern/See), Kultur/Stadt oder Familienprogramm?",
+      "day_trip": "Als Tagesausflug empfehlen sich {region}. Wenn du sagst, ob Sommer/Winter und wie mobil ihr seid (Auto/ÖPNV), nenne ich dir die passendsten Highlights."
+    }
+  }
+}
