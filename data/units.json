@@ -1,0 +1,294 @@
+{
+  "generatedAt": "2026-02-14T16:20:45Z",
+  "source": "UNITS_REGISTRY.md + frontend api/units.json(category only)",
+  "units": [
+    {
+      "unit_id": 1,
+      "fewo": 1,
+      "name": "Edelweiß",
+      "slug": "edelweiss",
+      "smoobu_id": 2275911,
+      "category": "Premium",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/edelweiss.html",
+      "book_url": "/pages/units/edelweiss.html",
+      "assets": {
+        "collage": "/assets/units/unit-1/col_unit-1.webp",
+        "floorplan": "/assets/floorplans/unit-1.svg"
+      }
+    },
+    {
+      "unit_id": 2,
+      "fewo": 2,
+      "name": "Alpenpause",
+      "slug": "alpenpause",
+      "smoobu_id": 1590379,
+      "category": "Suite",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/alpenpause.html",
+      "book_url": "/pages/units/alpenpause.html",
+      "assets": {
+        "collage": "/assets/units/unit-2/col_unit-2.webp",
+        "floorplan": "/assets/floorplans/unit-2.svg"
+      }
+    },
+    {
+      "unit_id": 3,
+      "fewo": 3,
+      "name": "Bergherz",
+      "slug": "bergherz",
+      "smoobu_id": 1590481,
+      "category": "Suite",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/bergherz.html",
+      "book_url": "/pages/units/bergherz.html",
+      "assets": {
+        "collage": "/assets/units/unit-3/col_unit-3.webp",
+        "floorplan": "/assets/floorplans/unit-3.svg"
+      }
+    },
+    {
+      "unit_id": 5,
+      "fewo": 5,
+      "name": "Alpenglühen",
+      "slug": "alpengluehen",
+      "smoobu_id": 1590490,
+      "category": "Premium",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/alpengluehen.html",
+      "book_url": "/pages/units/alpengluehen.html",
+      "assets": {
+        "collage": "/assets/units/unit-5/col_unit-5.webp",
+        "floorplan": "/assets/floorplans/unit-5.svg"
+      }
+    },
+    {
+      "unit_id": 6,
+      "fewo": 6,
+      "name": "Enzian",
+      "slug": "enzian",
+      "smoobu_id": 1590490,
+      "category": "Apartment",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/enzian.html",
+      "book_url": "/pages/units/enzian.html",
+      "assets": {
+        "collage": "/assets/units/unit-6/col_unit-6.webp",
+        "floorplan": "/assets/floorplans/unit-6.svg"
+      }
+    },
+    {
+      "unit_id": 7,
+      "fewo": 7,
+      "name": "Alpenblick",
+      "slug": "alpenblick",
+      "smoobu_id": 1590490,
+      "category": "Suite",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/alpenblick.html",
+      "book_url": "/pages/units/alpenblick.html",
+      "assets": {
+        "collage": "/assets/units/unit-7/col_unit-7.webp",
+        "floorplan": "/assets/floorplans/unit-7.svg"
+      }
+    },
+    {
+      "unit_id": 8,
+      "fewo": 8,
+      "name": "Alpenrose",
+      "slug": "alpenrose",
+      "smoobu_id": 1590496,
+      "category": "Premium",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/alpenrose.html",
+      "book_url": "/pages/units/alpenrose.html",
+      "assets": {
+        "collage": "/assets/units/unit-8/col_unit-8.webp",
+        "floorplan": "/assets/floorplans/unit-8.svg"
+      }
+    },
+    {
+      "unit_id": 9,
+      "fewo": 9,
+      "name": "Bergnest",
+      "slug": "bergnest",
+      "smoobu_id": 1590499,
+      "category": "Apartment",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/bergnest.html",
+      "book_url": "/pages/units/bergnest.html",
+      "assets": {
+        "collage": "/assets/units/unit-9/col_unit-9.webp",
+        "floorplan": "/assets/floorplans/unit-9.svg"
+      }
+    },
+    {
+      "unit_id": 10,
+      "fewo": 10,
+      "name": "Bergblick",
+      "slug": "bergblick",
+      "smoobu_id": 1590490,
+      "category": "Apartment",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/bergblick.html",
+      "book_url": "/pages/units/bergblick.html",
+      "assets": {
+        "collage": "/assets/units/unit-10/col_unit-10.webp",
+        "floorplan": "/assets/floorplans/unit-10.svg"
+      }
+    },
+    {
+      "unit_id": 11,
+      "fewo": 11,
+      "name": "Bergluft",
+      "slug": "bergluft",
+      "smoobu_id": 1590490,
+      "category": "Suite",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/bergluft.html",
+      "book_url": "/pages/units/bergluft.html",
+      "assets": {
+        "collage": "/assets/units/unit-11/col_unit-11.webp",
+        "floorplan": "/assets/floorplans/unit-11.svg"
+      }
+    },
+    {
+      "unit_id": 12,
+      "fewo": 12,
+      "name": "Bergzeit",
+      "slug": "bergzeit",
+      "smoobu_id": 1590508,
+      "category": "Suite",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/bergzeit.html",
+      "book_url": "/pages/units/bergzeit.html",
+      "assets": {
+        "collage": "/assets/units/unit-12/col_unit-12.webp",
+        "floorplan": "/assets/floorplans/unit-12.svg"
+      }
+    },
+    {
+      "unit_id": 13,
+      "fewo": 13,
+      "name": "Alpenbach",
+      "slug": "alpenbach",
+      "smoobu_id": 1590490,
+      "category": "Suite",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/alpenbach.html",
+      "book_url": "/pages/units/alpenbach.html",
+      "assets": {
+        "collage": "/assets/units/unit-13/col_unit-13.webp",
+        "floorplan": "/assets/floorplans/unit-13.svg"
+      }
+    },
+    {
+      "unit_id": 14,
+      "fewo": 14,
+      "name": "Alpenruhe",
+      "slug": "alpenruhe",
+      "smoobu_id": 1590490,
+      "category": "Suite",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/alpenruhe.html",
+      "book_url": "/pages/units/alpenruhe.html",
+      "assets": {
+        "collage": "/assets/units/unit-14/col_unit-14.webp",
+        "floorplan": "/assets/floorplans/unit-14.svg"
+      }
+    },
+    {
+      "unit_id": 15,
+      "fewo": 15,
+      "name": "Alpenlicht",
+      "slug": "alpenlicht",
+      "smoobu_id": 1590490,
+      "category": null,
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/alpenlicht.html",
+      "book_url": "/pages/units/alpenlicht.html",
+      "assets": {
+        "collage": "/assets/units/unit-15/col_unit-15.webp",
+        "floorplan": "/assets/floorplans/unit-15_thumb_512.jpg"
+      }
+    },
+    {
+      "unit_id": 16,
+      "fewo": 16,
+      "name": "Bergglück",
+      "slug": "bergglueck",
+      "smoobu_id": 1590520,
+      "category": "Premium",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/bergglueck.html",
+      "book_url": "/pages/units/bergglueck.html",
+      "assets": {
+        "collage": "/assets/units/unit-16/col_unit-16.webp",
+        "floorplan": "/assets/floorplans/unit-16.svg"
+      }
+    },
+    {
+      "unit_id": 17,
+      "fewo": 17,
+      "name": "Kaiserblick",
+      "slug": "kaiserblick",
+      "smoobu_id": 1590523,
+      "category": "Premium",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/kaiserblick.html",
+      "book_url": "/pages/units/kaiserblick.html",
+      "assets": {
+        "collage": "/assets/units/unit-17/col_unit-17.webp",
+        "floorplan": "/assets/floorplans/unit-17.svg"
+      }
+    },
+    {
+      "unit_id": 18,
+      "fewo": 18,
+      "name": "Alpennest",
+      "slug": "alpennest",
+      "smoobu_id": 1590490,
+      "category": "Apartment",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/alpennest.html",
+      "book_url": "/pages/units/alpennest.html",
+      "assets": {
+        "collage": "/assets/units/unit-18/col_unit-18.webp",
+        "floorplan": "/assets/floorplans/unit-18.svg"
+      }
+    },
+    {
+      "unit_id": 19,
+      "fewo": 19,
+      "name": "Silberdistel",
+      "slug": "silberdistel",
+      "smoobu_id": 1590529,
+      "category": "Apartment",
+      "m2": null,
+      "max_persons": null,
+      "details_url": "/pages/units/silberdistel.html",
+      "book_url": "/pages/units/silberdistel.html",
+      "assets": {
+        "collage": "/assets/units/unit-19/col_unit-19.webp",
+        "floorplan": "/assets/floorplans/unit-19.svg"
+      }
+    }
+  ]
+}
