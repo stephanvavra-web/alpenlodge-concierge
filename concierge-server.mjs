@@ -46,47 +46,31 @@ function isoTodayVienna() {
 
 // ---------------- Auto discounts (lead time based) ----------------
 // Rules requested:
-// 40%: 0–2 days before arrival
-// 30%: 3–7 days
-// 20%: 8–14 days
+// 30%: 0–2 days before arrival (max 6 nights)
+// 20%: 3–7 days (max 13 nights)
+// 15%: 8–14 days
 // 10%: 15–180 days (Online Rabatt)
 // NOTE: We compute discounts server-side (do NOT rely on Smoobu discount codes),
 //       so the public booking flow is consistent and cannot be manipulated client-side.
 function loadAutoDiscountRules() {
+  // Canonical rules (single source of truth).
+  // Important: Keep this in sync with frontend AL_getAutoDiscount in assets/js/site.js.
   const fallback = [
-    { minDays: 0,  maxDays: 2,   pct: 40, code: "last2026alp", name: "Lastminute" },
-    { minDays: 3,  maxDays: 7,   pct: 30, code: "auto30alp",   name: "Lastminute" },
-    { minDays: 8,  maxDays: 14,  pct: 20, code: "auto20alp",   name: "Lastminute" },
+    { minDays: 0,  maxDays: 2,   pct: 30, code: "last2026alp", name: "Lastminute", maxNights: 6 },
+    { minDays: 3,  maxDays: 7,   pct: 20, code: "auto20alp",   name: "Lastminute", maxNights: 13 },
+    { minDays: 8,  maxDays: 14,  pct: 15, code: "auto15alp",   name: "Lastminute" },
     { minDays: 15, maxDays: 180, pct: 10, code: "online10alp", name: "Online Rabatt" },
   ];
 
-  const raw = String(process.env.AUTO_DISCOUNT_RULES_JSON || "").trim();
-  if (!raw) return fallback;
-  try {
-    const j = JSON.parse(raw);
-    if (!Array.isArray(j) || !j.length) return fallback;
-    // Basic validation
-    const cleaned = j
-      .map((r) => ({
-        minDays: Number(r?.minDays),
-        maxDays: Number(r?.maxDays),
-        pct: Number(r?.pct),
-        code: String(r?.code || "").trim(),
-        name: String(r?.name || "").trim(),
-      }))
-      .filter((r) =>
-        Number.isFinite(r.minDays) &&
-        Number.isFinite(r.maxDays) &&
-        Number.isFinite(r.pct) &&
-        r.code &&
-        r.pct > 0 &&
-        r.minDays >= 0 &&
-        r.maxDays >= r.minDays
-      );
-    return cleaned.length ? cleaned : fallback;
-  } catch {
-    return fallback;
+  // Guardrail:
+  // We intentionally do not allow env overrides for auto-discount tiers because
+  // stale deployment variables can silently desync backend vs frontend and cause
+  // wrong prices in production.
+  if (String(process.env.AUTO_DISCOUNT_RULES_JSON || "").trim()) {
+    console.warn("[discount] AUTO_DISCOUNT_RULES_JSON is set but ignored; using canonical rules.");
   }
+  return fallback;
+
 }
 
 const AUTO_DISCOUNT_RULES = loadAutoDiscountRules();
@@ -107,16 +91,21 @@ function diffDaysYmd(fromYmd, toYmd) {
   return Math.round((b - a) / 86400000);
 }
 
-function getAutoDiscountForArrival(arrivalYmd, { todayYmd } = {}) {
+function getAutoDiscountForArrival(arrivalYmd, { todayYmd, departureYmd } = {}) {
   const today = todayYmd || isoTodayVienna();
   const days = diffDaysYmd(today, arrivalYmd);
-  if (!Number.isFinite(days)) return { pct: 0, code: "", name: "", days: null };
+  const nights = departureYmd ? diffDaysYmd(arrivalYmd, departureYmd) : null;
+  if (!Number.isFinite(days)) return { pct: 0, code: "", name: "", days: null, nights };
 
   for (const r of AUTO_DISCOUNT_RULES) {
     const min = Number(r?.minDays);
     const max = Number(r?.maxDays);
     if (!Number.isFinite(min) || !Number.isFinite(max)) continue;
     if (days >= min && days <= max) {
+      const maxNights = (r?.maxNights === null || r?.maxNights === undefined) ? null : Number(r?.maxNights);
+      if (Number.isFinite(maxNights) && maxNights > 0 && Number.isFinite(nights) && nights > maxNights) {
+        return { pct: 0, code: "", name: "", days, nights, maxNights, rejectedByMaxNights: true };
+      }
       const pct = Number(r?.pct);
       const code = String(r?.code || "").trim();
       const name = String(r?.name || "").trim();
@@ -125,10 +114,12 @@ function getAutoDiscountForArrival(arrivalYmd, { todayYmd } = {}) {
         code,
         name,
         days,
+        nights,
+        maxNights: (Number.isFinite(maxNights) && maxNights > 0) ? maxNights : null,
       };
     }
   }
-  return { pct: 0, code: "", name: "", days };
+  return { pct: 0, code: "", name: "", days, nights };
 }
 
 function applyPctDiscount(amount, pct) {
@@ -1868,12 +1859,15 @@ app.post("/api/payment/stripe/create-intent", rateLimit, async (req, res) => {
         const name = String(offerDiscountObj.name || '').trim();
         const days = (typeof offerDiscountObj.days === 'number') ? offerDiscountObj.days : null;
         const kind = (offerDiscountObj.kind ? String(offerDiscountObj.kind) : undefined);
-        return { code, pct: (Number.isFinite(pct) && pct > 0) ? pct : 0, name, days, kind };
+        const nights = (typeof offerDiscountObj.nights === "number") ? offerDiscountObj.nights : null;
+        const maxNights = (typeof offerDiscountObj.maxNights === "number") ? offerDiscountObj.maxNights : null;
+        return { code, pct: (Number.isFinite(pct) && pct > 0) ? pct : 0, name, days, kind, nights, maxNights };
       }
       // Fallback for older tokens (best-effort)
       const a = String(offer.arrivalDate ?? offer.arrival ?? '').trim();
       if (!a) return null;
-      const auto = getAutoDiscountForArrival(a);
+      const d = String(offer.departureDate ?? offer.departure ?? '').trim();
+      const auto = getAutoDiscountForArrival(a, { departureYmd: d || undefined });
       if (auto && Number(auto.pct) > 0 && auto.code) return { ...auto };
       return null;
     })();
@@ -1926,6 +1920,8 @@ const amountCents = cents(total);
               amountCents: discountAmountCents,
               name: String(discountMeta.name || ''),
               days: (typeof discountMeta.days === 'number') ? discountMeta.days : null,
+              nights: (typeof discountMeta.nights === 'number') ? discountMeta.nights : null,
+              maxNights: (typeof discountMeta.maxNights === 'number') ? discountMeta.maxNights : null,
               kind: (discountMeta.kind ? String(discountMeta.kind) : undefined),
               src: (src || ''),
               clientCode: (discountCode || ''),
@@ -2164,7 +2160,7 @@ async function smoobuAvailabilityHandler(req, res) {
     }
 
     // Lead-time based auto discount (server-side source of truth)
-    const auto = getAutoDiscountForArrival(aIso);
+    const auto = getAutoDiscountForArrival(aIso, { departureYmd: dIso });
     const requestedCode = (typeof discountCode === "string" ? discountCode.trim() : "");
     const requestedLc = requestedCode.toLowerCase();
     const isManualCode = Boolean(requestedCode) && !AUTO_DISCOUNT_CODES_LC.has(requestedLc);
@@ -2206,7 +2202,17 @@ async function smoobuAvailabilityHandler(req, res) {
       // Keep transparency for clients/debugging (manual codes are handled by Smoobu).
       if (data && typeof data === "object") data.autoDiscountApplied = { pct: 0, code: requestedCode, name: "", days: null, kind: "manual" };
     } else {
-      if (data && typeof data === "object") data.autoDiscountApplied = { pct: 0, code: "", name: "", days: (auto && typeof auto.days === 'number') ? auto.days : null };
+      if (data && typeof data === "object") {
+        data.autoDiscountApplied = {
+          pct: 0,
+          code: "",
+          name: "",
+          days: (auto && typeof auto.days === "number") ? auto.days : null,
+          nights: (auto && typeof auto.nights === "number") ? auto.nights : null,
+          maxNights: (auto && typeof auto.maxNights === "number") ? auto.maxNights : null,
+          rejectedByMaxNights: Boolean(auto && auto.rejectedByMaxNights),
+        };
+      }
     }
 
     availabilityCacheSet(cacheKey, data);
@@ -2301,7 +2307,7 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests, discount
   }
 
   // Lead-time based auto discount (server-side source of truth)
-  const auto = getAutoDiscountForArrival(aIso);
+  const auto = getAutoDiscountForArrival(aIso, { departureYmd: dIso });
   const requestedCode = (typeof discountCode === "string" ? discountCode.trim() : "");
   const requestedLc = requestedCode.toLowerCase();
   const isManualCode = Boolean(requestedCode) && !AUTO_DISCOUNT_CODES_LC.has(requestedLc);
@@ -2419,7 +2425,12 @@ async function publicBookHandler(req, res) {
     // Discount used for notes/metadata (source of truth: signed offer payload).
     const offerDiscountObj = (offer && typeof offer === 'object' && offer.discount && typeof offer.discount === 'object') ? offer.discount : null;
     const offerArrivalYmd = (offer && typeof offer === 'object') ? String(offer.arrivalDate ?? offer.arrival ?? "").trim() : "";
-    const fallbackAuto = offerArrivalYmd ? getAutoDiscountForArrival(offerArrivalYmd) : null;
+    const offerDepartureYmd = (offer && typeof offer === "object")
+      ? String(offer.departureDate ?? offer.departure ?? "").trim()
+      : "";
+    const fallbackAuto = offerArrivalYmd
+      ? getAutoDiscountForArrival(offerArrivalYmd, { departureYmd: offerDepartureYmd || undefined })
+      : null;
     const effectiveDiscount = (offerDiscountObj && offerDiscountObj.code)
       ? offerDiscountObj
       : (fallbackAuto && Number(fallbackAuto.pct) > 0 && fallbackAuto.code ? fallbackAuto : null);
