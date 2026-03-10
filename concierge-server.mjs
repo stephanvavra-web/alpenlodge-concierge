@@ -46,20 +46,20 @@ function isoTodayVienna() {
 
 // ---------------- Auto discounts (lead time based) ----------------
 // Rules requested:
-// 30%: 0–2 days before arrival (max 6 nights)
-// 20%: 3–7 days (max 13 nights)
-// 15%: 8–14 days
-// 10%: 15–180 days (Online Rabatt)
+// 25%: 0–2 days before arrival (max 6 nights)
+// 15%: 3–7 days (max 13 nights)
+// 10%: 8–14 days
+// 5%: 15–180 days (Online Rabatt)
 // NOTE: We compute discounts server-side (do NOT rely on Smoobu discount codes),
 //       so the public booking flow is consistent and cannot be manipulated client-side.
 function loadAutoDiscountRules() {
   // Canonical rules (single source of truth).
   // Important: Keep this in sync with frontend AL_getAutoDiscount in assets/js/site.js.
   const fallback = [
-    { minDays: 0,  maxDays: 2,   pct: 30, code: "last2026alp", name: "Lastminute", maxNights: 6 },
-    { minDays: 3,  maxDays: 7,   pct: 20, code: "auto20alp",   name: "Lastminute", maxNights: 13 },
-    { minDays: 8,  maxDays: 14,  pct: 15, code: "auto15alp",   name: "Lastminute" },
-    { minDays: 15, maxDays: 180, pct: 10, code: "online10alp", name: "Online Rabatt" },
+    { minDays: 0,  maxDays: 2,   pct: 25, code: "last2026alp", name: "Lastminute", maxNights: 6 },
+    { minDays: 3,  maxDays: 7,   pct: 15, code: "auto20alp",   name: "Lastminute", maxNights: 13 },
+    { minDays: 8,  maxDays: 14,  pct: 10, code: "auto15alp",   name: "Lastminute" },
+    { minDays: 15, maxDays: 180, pct: 5,  code: "online10alp", name: "Online Rabatt" },
   ];
 
   // Guardrail:
