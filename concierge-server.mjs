@@ -44,38 +44,35 @@ function isoTodayVienna() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Vienna", year:"numeric", month:"2-digit", day:"2-digit" }).format(d); // YYYY-MM-DD
 }
 
-// ---------------- Auto discounts (lead time based) ----------------
-// Rules requested:
+// ---------------- Auto discounts (server-side source of truth) ----------------
+// Lead-time tiers:
 // 25%: 0–2 days before arrival (max 6 nights)
 // 15%: 3–7 days (max 13 nights)
 // 10%: 8–14 days
-// 5%: 15–180 days (Online Rabatt)
-// NOTE: We compute discounts server-side (do NOT rely on Smoobu discount codes),
-//       so the public booking flow is consistent and cannot be manipulated client-side.
-function loadAutoDiscountRules() {
-  // Canonical rules (single source of truth).
-  // Important: Keep this in sync with frontend AL_getAutoDiscount in assets/js/site.js.
-  const fallback = [
-    { minDays: 0,  maxDays: 2,   pct: 25, code: "last2026alp", name: "Lastminute", maxNights: 6 },
-    { minDays: 3,  maxDays: 7,   pct: 15, code: "auto20alp",   name: "Lastminute", maxNights: 13 },
-    { minDays: 8,  maxDays: 14,  pct: 10, code: "auto15alp",   name: "Lastminute" },
-    { minDays: 15, maxDays: 180, pct: 5,  code: "online10alp", name: "Online Rabatt" },
-  ];
+// 5%: 15–180 days
+// Long-stay tiers (nights based):
+// >= 7 nights: 10% (long10alp)
+// >= 14 nights: 15% (long15alp)
+// >= 30 nights: 30% (long30alp)
+// Selection rule:
+// best = max(leadTimeDiscount, longStayDiscount), non-cumulative (single code only).
+const AUTO_LEAD_DISCOUNT_RULES = [
+  { minDays: 0,  maxDays: 2,   pct: 25, code: "last2026alp", name: "Lastminute", maxNights: 6 },
+  { minDays: 3,  maxDays: 7,   pct: 15, code: "auto20alp",   name: "Lastminute", maxNights: 13 },
+  { minDays: 8,  maxDays: 14,  pct: 10, code: "auto15alp",   name: "Lastminute" },
+  { minDays: 15, maxDays: 180, pct: 5,  code: "online10alp", name: "Online Rabatt" },
+];
 
-  // Guardrail:
-  // We intentionally do not allow env overrides for auto-discount tiers because
-  // stale deployment variables can silently desync backend vs frontend and cause
-  // wrong prices in production.
-  if (String(process.env.AUTO_DISCOUNT_RULES_JSON || "").trim()) {
-    console.warn("[discount] AUTO_DISCOUNT_RULES_JSON is set but ignored; using canonical rules.");
-  }
-  return fallback;
+const AUTO_LONG_STAY_RULES = [
+  { minNights: 30, pct: 30, code: "long30alp", name: "Long Stay" },
+  { minNights: 14, pct: 15, code: "long15alp", name: "Long Stay" },
+  { minNights: 7,  pct: 10, code: "long10alp", name: "Long Stay" },
+];
 
-}
-
-const AUTO_DISCOUNT_RULES = loadAutoDiscountRules();
 const AUTO_DISCOUNT_CODES_LC = new Set(
-  AUTO_DISCOUNT_RULES.map((r) => String(r?.code || "").trim().toLowerCase()).filter(Boolean)
+  [...AUTO_LEAD_DISCOUNT_RULES, ...AUTO_LONG_STAY_RULES]
+    .map((r) => String(r?.code || "").trim().toLowerCase())
+    .filter(Boolean)
 );
 
 function ymdToUtcMs(ymd) {
@@ -91,13 +88,13 @@ function diffDaysYmd(fromYmd, toYmd) {
   return Math.round((b - a) / 86400000);
 }
 
-function getAutoDiscountForArrival(arrivalYmd, { todayYmd, departureYmd } = {}) {
+function getLeadTimeDiscount(arrivalYmd, { todayYmd, departureYmd } = {}) {
   const today = todayYmd || isoTodayVienna();
   const days = diffDaysYmd(today, arrivalYmd);
   const nights = departureYmd ? diffDaysYmd(arrivalYmd, departureYmd) : null;
   if (!Number.isFinite(days)) return { pct: 0, code: "", name: "", days: null, nights };
 
-  for (const r of AUTO_DISCOUNT_RULES) {
+  for (const r of AUTO_LEAD_DISCOUNT_RULES) {
     const min = Number(r?.minDays);
     const max = Number(r?.maxDays);
     if (!Number.isFinite(min) || !Number.isFinite(max)) continue;
@@ -115,11 +112,111 @@ function getAutoDiscountForArrival(arrivalYmd, { todayYmd, departureYmd } = {}) 
         name,
         days,
         nights,
+        kind: "auto",
+        source: "lead",
         maxNights: (Number.isFinite(maxNights) && maxNights > 0) ? maxNights : null,
       };
     }
   }
   return { pct: 0, code: "", name: "", days, nights };
+}
+
+function getLongStayDiscount(arrivalYmd, { departureYmd } = {}) {
+  const nights = departureYmd ? diffDaysYmd(arrivalYmd, departureYmd) : null;
+  if (!Number.isFinite(nights) || nights <= 0) return { pct: 0, code: "", name: "", nights };
+  for (const r of AUTO_LONG_STAY_RULES) {
+    const minNights = Number(r?.minNights);
+    if (!Number.isFinite(minNights) || nights < minNights) continue;
+    const pct = Number(r?.pct);
+    const code = String(r?.code || "").trim();
+    const name = String(r?.name || "").trim();
+    return {
+      pct: (Number.isFinite(pct) && pct > 0) ? pct : 0,
+      code,
+      name,
+      nights,
+      kind: "auto",
+      source: "longstay",
+      minNights,
+    };
+  }
+  return { pct: 0, code: "", name: "", nights };
+}
+
+function pickBetterDiscount(a, b) {
+  const pa = Number(a?.pct || 0);
+  const pb = Number(b?.pct || 0);
+  if (pb > pa) return b;
+  return a;
+}
+
+function normalizeNoDiscount(meta = {}) {
+  return {
+    pct: 0,
+    code: "",
+    name: "",
+    days: Number.isFinite(meta?.days) ? Number(meta.days) : null,
+    nights: Number.isFinite(meta?.nights) ? Number(meta.nights) : null,
+    kind: "auto",
+  };
+}
+
+function getAutoDiscountForArrival(arrivalYmd, { todayYmd, departureYmd, requestedCode } = {}) {
+  const lead = getLeadTimeDiscount(arrivalYmd, { todayYmd, departureYmd });
+  const long = getLongStayDiscount(arrivalYmd, { departureYmd });
+  const requestedLc = String(requestedCode || "").trim().toLowerCase();
+  const meta = {
+    days: Number.isFinite(lead?.days) ? Number(lead.days) : null,
+    nights: Number.isFinite(lead?.nights) ? Number(lead.nights) : (Number.isFinite(long?.nights) ? Number(long.nights) : null),
+  };
+
+  if (requestedLc) {
+    if (lead?.code && String(lead.code).toLowerCase() === requestedLc) return { ...lead };
+    if (long?.code && String(long.code).toLowerCase() === requestedLc) return { ...long };
+    return normalizeNoDiscount(meta);
+  }
+
+  const best = pickBetterDiscount(lead, long);
+  if (best && Number(best.pct) > 0 && best.code) return { ...best };
+  return normalizeNoDiscount(meta);
+}
+
+function getLongStayDiscountAmount(priceInfo) {
+  if (!priceInfo || typeof priceInfo !== "object") return 0;
+  const priceElements = priceInfo.priceElements;
+  if (!priceElements) return 0;
+
+  const readAmount = (entry) => {
+    if (!entry || typeof entry !== "object") return null;
+    const candidates = [entry.value, entry.amount, entry.price, entry.total, entry.sum];
+    for (const c of candidates) {
+      const n = Number(c);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  };
+
+  if (Array.isArray(priceElements)) {
+    for (const el of priceElements) {
+      const key = String(el?.key || el?.type || el?.name || el?.label || "").toLowerCase();
+      if (!key.includes("longstay")) continue;
+      const amount = readAmount(el);
+      if (Number.isFinite(amount) && amount !== 0) return amount;
+    }
+    return 0;
+  }
+
+  if (typeof priceElements === "object") {
+    for (const [k, v] of Object.entries(priceElements)) {
+      const key = String(k || "").toLowerCase();
+      if (!key.includes("longstay")) continue;
+      const n = Number(v);
+      if (Number.isFinite(n) && n !== 0) return n;
+      const amount = readAmount(v);
+      if (Number.isFinite(amount) && amount !== 0) return amount;
+    }
+  }
+  return 0;
 }
 
 function applyPctDiscount(amount, pct) {
@@ -2159,11 +2256,14 @@ async function smoobuAvailabilityHandler(req, res) {
       });
     }
 
-    // Lead-time based auto discount (server-side source of truth)
-    const auto = getAutoDiscountForArrival(aIso, { departureYmd: dIso });
+    // Server-side auto discount (best of lead-time vs long-stay), non-cumulative.
     const requestedCode = (typeof discountCode === "string" ? discountCode.trim() : "");
     const requestedLc = requestedCode.toLowerCase();
     const isManualCode = Boolean(requestedCode) && !AUTO_DISCOUNT_CODES_LC.has(requestedLc);
+    const auto = getAutoDiscountForArrival(aIso, {
+      departureYmd: dIso,
+      requestedCode: (!isManualCode && requestedCode) ? requestedCode : undefined,
+    });
     const appliedDiscount = (!isManualCode && auto && Number(auto.pct) > 0 && auto.code) ? auto : null;
 
     const payload = {
@@ -2190,7 +2290,13 @@ async function smoobuAvailabilityHandler(req, res) {
     if (appliedDiscount && data && typeof data === "object" && data.prices && typeof data.prices === "object") {
       for (const [k, v] of Object.entries(data.prices)) {
         if (!v || typeof v !== "object") continue;
-        const base = Number(v.price);
+        let base = Number(v.price);
+        if (!Number.isFinite(base) || base <= 0) continue;
+        // Prevent double discounting when Smoobu already injected long-stay discount in priceElements.
+        const smoobuLongStay = getLongStayDiscountAmount(v);
+        if (Number.isFinite(smoobuLongStay) && smoobuLongStay !== 0) {
+          base = base - smoobuLongStay;
+        }
         if (!Number.isFinite(base) || base <= 0) continue;
         const out = applyPctDiscount(base, appliedDiscount.pct);
         v.priceBase = out.base;
@@ -2306,11 +2412,14 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests, discount
     throw err;
   }
 
-  // Lead-time based auto discount (server-side source of truth)
-  const auto = getAutoDiscountForArrival(aIso, { departureYmd: dIso });
+  // Server-side auto discount (best of lead-time vs long-stay), non-cumulative.
   const requestedCode = (typeof discountCode === "string" ? discountCode.trim() : "");
   const requestedLc = requestedCode.toLowerCase();
   const isManualCode = Boolean(requestedCode) && !AUTO_DISCOUNT_CODES_LC.has(requestedLc);
+  const auto = getAutoDiscountForArrival(aIso, {
+    departureYmd: dIso,
+    requestedCode: (!isManualCode && requestedCode) ? requestedCode : undefined,
+  });
   const appliedDiscount = (!isManualCode && auto && Number(auto.pct) > 0 && auto.code) ? auto : null;
 
   const customerIdRaw = process.env.SMOOBU_CUSTOMER_ID;
@@ -2347,7 +2456,11 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests, discount
     const key = String(id);
     const p = prices[key];
     if (!p) continue;
-    const base = Number(p?.price ?? 0);
+    let base = Number(p?.price ?? 0);
+    const smoobuLongStay = getLongStayDiscountAmount(p);
+    if (Number.isFinite(smoobuLongStay) && smoobuLongStay !== 0) {
+      base = base - smoobuLongStay;
+    }
     let price = base;
     let priceBase = base;
     let discountMeta = null;
