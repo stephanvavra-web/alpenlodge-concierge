@@ -46,27 +46,27 @@ function isoTodayVienna() {
 
 // ---------------- Auto discounts (server-side source of truth) ----------------
 // Lead-time tiers:
-// 25%: 0–2 days before arrival (max 6 nights)
-// 15%: 3–7 days (max 13 nights)
-// 10%: 8–14 days
+// 30%: 0–2 days before arrival (max 14 nights)
+// 20%: 3–7 days (max 13 nights)
+// 15%: 8–14 days
 // 5%: 15–180 days
 // Long-stay tiers (nights based):
-// >= 7 nights: 10% (long10alp)
-// >= 14 nights: 15% (long15alp)
+// >= 7 nights: 15% (long10alp)
+// >= 14 nights: 20% (long15alp)
 // >= 30 nights: 30% (long30alp)
 // Selection rule:
 // best = max(leadTimeDiscount, longStayDiscount), non-cumulative (single code only).
 const AUTO_LEAD_DISCOUNT_RULES = [
-  { minDays: 0,  maxDays: 2,   pct: 25, code: "last2026alp", name: "Lastminute", maxNights: 6 },
-  { minDays: 3,  maxDays: 7,   pct: 15, code: "auto20alp",   name: "Lastminute", maxNights: 13 },
-  { minDays: 8,  maxDays: 14,  pct: 10, code: "auto15alp",   name: "Lastminute" },
+  { minDays: 0,  maxDays: 2,   pct: 30, code: "last2026alp", name: "Lastminute", maxNights: 14 },
+  { minDays: 3,  maxDays: 7,   pct: 20, code: "auto20alp",   name: "Lastminute", maxNights: 13 },
+  { minDays: 8,  maxDays: 14,  pct: 15, code: "auto15alp",   name: "Lastminute" },
   { minDays: 15, maxDays: 180, pct: 5,  code: "online10alp", name: "Online Rabatt" },
 ];
 
 const AUTO_LONG_STAY_RULES = [
   { minNights: 30, pct: 30, code: "long30alp", name: "Long Stay" },
-  { minNights: 14, pct: 15, code: "long15alp", name: "Long Stay" },
-  { minNights: 7,  pct: 10, code: "long10alp", name: "Long Stay" },
+  { minNights: 14, pct: 20, code: "long15alp", name: "Long Stay" },
+  { minNights: 7,  pct: 15, code: "long10alp", name: "Long Stay" },
 ];
 
 const AUTO_DISCOUNT_CODES_LC = new Set(
