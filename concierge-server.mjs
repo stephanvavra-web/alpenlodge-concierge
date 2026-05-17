@@ -25,11 +25,12 @@ const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // defa
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
 const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "").toLowerCase() === "true";
 const SMOOBU_BASE = "https://login.smoobu.com";
-const PMS_CON_AVAILABILITY_ENABLED = String(process.env.PMS_CON_AVAILABILITY_ENABLED || "false").toLowerCase() === "true";
-const PMS_CON_OFFER_ENABLED = String(process.env.PMS_CON_OFFER_ENABLED || "false").toLowerCase() === "true";
-const PMS_CON_CHECKOUT_ENABLED = String(process.env.PMS_CON_CHECKOUT_ENABLED || "false").toLowerCase() === "true";
-const PMS_CON_WEBHOOK_PROCESSING_ENABLED = String(process.env.PMS_CON_WEBHOOK_PROCESSING_ENABLED || "false").toLowerCase() === "true";
-const PMS_CON_SHADOW_MODE_ENABLED = String(process.env.PMS_CON_SHADOW_MODE_ENABLED || "true").toLowerCase() === "true";
+// Option 2 default: PMS-con endpoints are active without requiring new env vars.
+const PMS_CON_AVAILABILITY_ENABLED = String(process.env.PMS_CON_AVAILABILITY_ENABLED || "true").toLowerCase() === "true";
+const PMS_CON_OFFER_ENABLED = String(process.env.PMS_CON_OFFER_ENABLED || "true").toLowerCase() === "true";
+const PMS_CON_CHECKOUT_ENABLED = String(process.env.PMS_CON_CHECKOUT_ENABLED || "true").toLowerCase() === "true";
+const PMS_CON_WEBHOOK_PROCESSING_ENABLED = String(process.env.PMS_CON_WEBHOOK_PROCESSING_ENABLED || "true").toLowerCase() === "true";
+const PMS_CON_SHADOW_MODE_ENABLED = String(process.env.PMS_CON_SHADOW_MODE_ENABLED || "false").toLowerCase() === "true";
 const PMS_CON_OFFER_TTL_SECONDS = Math.max(300, Number(process.env.PMS_CON_OFFER_TTL_SECONDS || "1800"));
 const PMS_CON_LOCK_TTL_SECONDS = Math.max(300, Number(process.env.PMS_CON_LOCK_TTL_SECONDS || "900"));
 
