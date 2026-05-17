@@ -25,6 +25,13 @@ const SMOOBU_CHANNEL_ID = Number(process.env.SMOOBU_CHANNEL_ID || "70"); // defa
 const BOOKING_RATE_LIMIT_PER_MIN = Number(process.env.BOOKING_RATE_LIMIT_PER_MIN || "30");
 const CONCIERGE_ENABLE_BOOKING_CHAT = String(process.env.CONCIERGE_ENABLE_BOOKING_CHAT || "").toLowerCase() === "true";
 const SMOOBU_BASE = "https://login.smoobu.com";
+const PMS_CON_AVAILABILITY_ENABLED = String(process.env.PMS_CON_AVAILABILITY_ENABLED || "false").toLowerCase() === "true";
+const PMS_CON_OFFER_ENABLED = String(process.env.PMS_CON_OFFER_ENABLED || "false").toLowerCase() === "true";
+const PMS_CON_CHECKOUT_ENABLED = String(process.env.PMS_CON_CHECKOUT_ENABLED || "false").toLowerCase() === "true";
+const PMS_CON_WEBHOOK_PROCESSING_ENABLED = String(process.env.PMS_CON_WEBHOOK_PROCESSING_ENABLED || "false").toLowerCase() === "true";
+const PMS_CON_SHADOW_MODE_ENABLED = String(process.env.PMS_CON_SHADOW_MODE_ENABLED || "true").toLowerCase() === "true";
+const PMS_CON_OFFER_TTL_SECONDS = Math.max(300, Number(process.env.PMS_CON_OFFER_TTL_SECONDS || "1800"));
+const PMS_CON_LOCK_TTL_SECONDS = Math.max(300, Number(process.env.PMS_CON_LOCK_TTL_SECONDS || "900"));
 
 // Mini-Cache (damit wir Smoobu nicht spammen)
 const cache = {
@@ -1512,6 +1519,67 @@ function verifyOffer(token) {
   return payload;
 }
 
+function getPmsConFlags() {
+  return {
+    pmsConAvailabilityEnabled: PMS_CON_AVAILABILITY_ENABLED,
+    pmsConOfferEnabled: PMS_CON_OFFER_ENABLED,
+    pmsConCheckoutEnabled: PMS_CON_CHECKOUT_ENABLED,
+    pmsConWebhookProcessingEnabled: PMS_CON_WEBHOOK_PROCESSING_ENABLED,
+    pmsConShadowModeEnabled: PMS_CON_SHADOW_MODE_ENABLED,
+  };
+}
+
+function sha256Hex(input) {
+  return crypto.createHash("sha256").update(String(input || "")).digest("hex");
+}
+
+function signPmsConOfferToken({ offerId, offerHash, expMs }) {
+  if (!BOOKING_TOKEN_SECRET) throw new Error("Missing BOOKING_TOKEN_SECRET");
+  const payload = {
+    offerId: String(offerId),
+    offerHash: String(offerHash),
+    jti: crypto.randomUUID(),
+    exp: Number(expMs),
+    kid: "pms-con-v1",
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = crypto.createHmac("sha256", BOOKING_TOKEN_SECRET).update(payloadB64).digest("base64url");
+  return `${payloadB64}.${sig}`;
+}
+
+function verifyPmsConOfferToken(token) {
+  if (!BOOKING_TOKEN_SECRET) throw new Error("Missing BOOKING_TOKEN_SECRET");
+  const t = String(token || "").trim();
+  const [payloadB64, sig] = t.split(".");
+  if (!payloadB64 || !sig) throw new Error("invalid_pmscon_offer_token");
+  const expected = crypto.createHmac("sha256", BOOKING_TOKEN_SECRET).update(payloadB64).digest("base64url");
+  if (sig !== expected) throw new Error("invalid_pmscon_offer_signature");
+  const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+  if (!payload?.exp || Date.now() > Number(payload.exp)) throw new Error("pmscon_offer_expired");
+  if (!payload?.offerId || !payload?.offerHash) throw new Error("invalid_pmscon_offer_payload");
+  return payload;
+}
+
+function requirePmsConFlagOrShadow(flagName, res) {
+  const flags = getPmsConFlags();
+  if (flags[flagName] || flags.pmsConShadowModeEnabled) return true;
+  res.status(503).json({
+    error: "pms_con_disabled",
+    hint: `Enable ${flagName.toUpperCase()} or PMS_CON_SHADOW_MODE_ENABLED`,
+    flags,
+  });
+  return false;
+}
+
+function parseGuests(adults, children, guests) {
+  const g = Number(guests);
+  if (Number.isFinite(g) && g > 0) return Math.round(g);
+  const a = Number(adults || 0);
+  const c = Number(children || 0);
+  const sum = a + c;
+  return Number.isFinite(sum) && sum > 0 ? Math.round(sum) : 1;
+}
+
 function getAuthToken(req) {
   const h = req.headers || {};
   const bearer = typeof h.authorization === "string" ? h.authorization : "";
@@ -1650,6 +1718,7 @@ const app = express();
 app.use(cors());
 // Stripe webhooks require raw body; do NOT run express.json() on that route.
 app.use("/api/payment/stripe/webhook", express.raw({ type: "application/json" }));
+app.use("/api/pms-con/webhooks/stripe", express.raw({ type: "application/json" }));
 app.use(express.json());
 
 
@@ -1737,6 +1806,64 @@ async function dbInit() {
       received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS offer_snapshots (
+      id UUID PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      offer_hash TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      unit_id BIGINT NOT NULL,
+      check_in DATE NOT NULL,
+      check_out DATE NOT NULL,
+      nights INTEGER NOT NULL,
+      guests INTEGER NOT NULL,
+      base_price_cents INTEGER NOT NULL,
+      total_price_cents INTEGER NOT NULL,
+      discount_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload_json JSONB NOT NULL,
+      consumed_at TIMESTAMPTZ NULL
+    );
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_offer_snapshots_expires_at ON offer_snapshots(expires_at)`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS availability_locks (
+      id UUID PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      status TEXT NOT NULL,
+      unit_id BIGINT NOT NULL,
+      check_in DATE NOT NULL,
+      check_out DATE NOT NULL,
+      nights INTEGER NOT NULL,
+      guests INTEGER NOT NULL,
+      offer_snapshot_id UUID REFERENCES offer_snapshots(id) ON DELETE CASCADE,
+      booking_intent_id UUID NULL
+    );
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_availability_locks_lookup ON availability_locks(unit_id, check_in, check_out, status, expires_at)`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS booking_intents (
+      id UUID PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      status TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      offer_snapshot_id UUID NOT NULL REFERENCES offer_snapshots(id) ON DELETE RESTRICT,
+      availability_lock_id UUID NULL REFERENCES availability_locks(id) ON DELETE SET NULL,
+      stripe_payment_intent_id TEXT NULL,
+      stripe_checkout_session_id TEXT NULL,
+      stripe_event_id TEXT NULL,
+      external_reservation_id TEXT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      guest_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      extras_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      last_error JSONB NULL
+    );
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_booking_intents_status ON booking_intents(status, updated_at)`);
   return { ok: true };
 }
 
@@ -1791,6 +1918,17 @@ app.get("/api/debug/vars", (req, res) => {
     booking: {
       bookingTokenSecretSet: Boolean(process.env.BOOKING_TOKEN_SECRET),
       rateLimitPerMin: BOOKING_RATE_LIMIT_PER_MIN,
+    },
+    pmsCon: {
+      availabilityEnabled: PMS_CON_AVAILABILITY_ENABLED,
+      offerEnabled: PMS_CON_OFFER_ENABLED,
+      checkoutEnabled: PMS_CON_CHECKOUT_ENABLED,
+      webhookProcessingEnabled: PMS_CON_WEBHOOK_PROCESSING_ENABLED,
+      shadowModeEnabled: PMS_CON_SHADOW_MODE_ENABLED,
+      offerTtlSeconds: PMS_CON_OFFER_TTL_SECONDS,
+      lockTtlSeconds: PMS_CON_LOCK_TTL_SECONDS,
+      databaseConfigured: Boolean(DATABASE_URL),
+      stripeConfigured: Boolean(STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET),
     },
   });
 });
@@ -2487,6 +2625,82 @@ async function computeOfferPayloads(arrivalDate, departureDate, guests, discount
   return offerPayloads;
 }
 
+async function createOfferSnapshotFromPayload(offer) {
+  if (!db) throw new Error("DATABASE_URL not set");
+  const id = crypto.randomUUID();
+  const nowMs = Date.now();
+  const expMs = nowMs + PMS_CON_OFFER_TTL_SECONDS * 1000;
+  const nights = nightsBetweenIso(offer.arrivalDate, offer.departureDate);
+  const basePriceCents = cents(offer.priceBase ?? offer.price ?? 0);
+  const totalPriceCents = cents(offer.price ?? 0);
+  const payloadJson = {
+    apartmentId: Number(offer.apartmentId),
+    arrivalDate: String(offer.arrivalDate),
+    departureDate: String(offer.departureDate),
+    guests: Number(offer.guests),
+    nights,
+    priceBase: Number(offer.priceBase ?? offer.price ?? 0),
+    price: Number(offer.price ?? 0),
+    currency: String(offer.currency || "EUR"),
+    discount: offer.discount || null,
+  };
+  const offerHash = sha256Hex(JSON.stringify(payloadJson));
+  await db.query(
+    `INSERT INTO offer_snapshots
+      (id, expires_at, offer_hash, currency, unit_id, check_in, check_out, nights, guests, base_price_cents, total_price_cents, discount_json, payload_json)
+     VALUES
+      ($1, to_timestamp($2/1000.0), $3, $4, $5, $6::date, $7::date, $8, $9, $10, $11, $12::jsonb, $13::jsonb)`,
+    [
+      id,
+      expMs,
+      offerHash,
+      String(offer.currency || "EUR"),
+      Number(offer.apartmentId),
+      String(offer.arrivalDate),
+      String(offer.departureDate),
+      nights,
+      Number(offer.guests),
+      basePriceCents,
+      totalPriceCents,
+      JSON.stringify(offer.discount || {}),
+      JSON.stringify(payloadJson),
+    ]
+  );
+  const offerToken = signPmsConOfferToken({ offerId: id, offerHash, expMs });
+  return {
+    offerId: id,
+    offerHash,
+    offerToken,
+    expiresAt: new Date(expMs).toISOString(),
+    snapshot: payloadJson,
+  };
+}
+
+async function createAvailabilityLock({ unitId, checkIn, checkOut, nights, guests, offerSnapshotId }) {
+  if (!db) throw new Error("DATABASE_URL not set");
+  const lockId = crypto.randomUUID();
+  const expiresAtMs = Date.now() + PMS_CON_LOCK_TTL_SECONDS * 1000;
+  const conflict = await db.query(
+    `SELECT id FROM availability_locks
+      WHERE unit_id=$1 AND check_in=$2::date AND check_out=$3::date AND status='active' AND expires_at > NOW()
+      LIMIT 1`,
+    [Number(unitId), String(checkIn), String(checkOut)]
+  );
+  if (conflict.rowCount > 0) {
+    const err = new Error("availability_locked");
+    err.status = 409;
+    throw err;
+  }
+  await db.query(
+    `INSERT INTO availability_locks
+      (id, expires_at, status, unit_id, check_in, check_out, nights, guests, offer_snapshot_id)
+     VALUES
+      ($1, to_timestamp($2/1000.0), 'active', $3, $4::date, $5::date, $6, $7, $8)`,
+    [lockId, expiresAtMs, Number(unitId), String(checkIn), String(checkOut), Number(nights), Number(guests), String(offerSnapshotId)]
+  );
+  return { lockId, expiresAt: new Date(expiresAtMs).toISOString() };
+}
+
 async function publicBookHandler(req, res) {
   try {
     const body = req.body || {};
@@ -2797,6 +3011,195 @@ async function publicBookHandler(req, res) {
     res.status(status).json({ error: "booking_error", details });
   }
 }
+
+app.get("/api/pms-con/flags", (req, res) => {
+  res.json({ ok: true, ...getPmsConFlags(), offerTtlSeconds: PMS_CON_OFFER_TTL_SECONDS, lockTtlSeconds: PMS_CON_LOCK_TTL_SECONDS });
+});
+
+app.post("/api/pms-con/availability", rateLimit, async (req, res) => {
+  try {
+    if (!requirePmsConFlagOrShadow("pmsConAvailabilityEnabled", res)) return;
+    const body = req.body || {};
+    const checkIn = String(body.checkIn || body.arrivalDate || "").trim();
+    const checkOut = String(body.checkOut || body.departureDate || "").trim();
+    const guests = parseGuests(body.adults, body.children, body.guests);
+    const discountCode = typeof body.discountCode === "string" ? body.discountCode.trim() : "";
+    const payloads = await computeOfferPayloads(checkIn, checkOut, guests, discountCode);
+    res.json({
+      ok: true,
+      requestId: crypto.randomUUID(),
+      source: "pms-con",
+      shadowMode: PMS_CON_SHADOW_MODE_ENABLED && !PMS_CON_AVAILABILITY_ENABLED,
+      checkIn,
+      checkOut,
+      guests,
+      offers: payloads,
+      offerCount: payloads.length,
+      flags: getPmsConFlags(),
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: "pms_con_availability_error", details: err.message || String(err) });
+  }
+});
+
+app.post("/api/pms-con/offers", rateLimit, async (req, res) => {
+  try {
+    if (!requirePmsConFlagOrShadow("pmsConOfferEnabled", res)) return;
+    if (!db) return res.status(500).json({ error: "db_not_configured", hint: "Set DATABASE_URL for pms-con offers." });
+    const body = req.body || {};
+    const checkIn = String(body.checkIn || body.arrivalDate || "").trim();
+    const checkOut = String(body.checkOut || body.departureDate || "").trim();
+    const guests = parseGuests(body.adults, body.children, body.guests);
+    const discountCode = typeof body.discountCode === "string" ? body.discountCode.trim() : "";
+    const unitId = Number(body.unitId || body.apartmentId || 0);
+    const payloads = await computeOfferPayloads(checkIn, checkOut, guests, discountCode);
+    const picked = Number.isFinite(unitId) && unitId > 0
+      ? payloads.find((p) => Number(p.apartmentId) === unitId)
+      : [...payloads].sort((a, b) => Number(a.price || 0) - Number(b.price || 0))[0];
+    if (!picked) return res.status(404).json({ error: "no_availability" });
+    const created = await createOfferSnapshotFromPayload(picked);
+    res.json({
+      ok: true,
+      requestId: crypto.randomUUID(),
+      source: "pms-con",
+      shadowMode: PMS_CON_SHADOW_MODE_ENABLED && !PMS_CON_OFFER_ENABLED,
+      offerId: created.offerId,
+      offerHash: created.offerHash,
+      offerToken: created.offerToken,
+      expiresAt: created.expiresAt,
+      offer: created.snapshot,
+      flags: getPmsConFlags(),
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: "pms_con_offer_error", details: err.message || String(err) });
+  }
+});
+
+app.post("/api/pms-con/bookings/checkout", rateLimit, async (req, res) => {
+  try {
+    if (!requirePmsConFlagOrShadow("pmsConCheckoutEnabled", res)) return;
+    if (!db) return res.status(500).json({ error: "db_not_configured", hint: "Set DATABASE_URL for pms-con checkout." });
+    const body = req.body || {};
+    const idempotencyKey = String(body.idempotencyKey || "").trim() || crypto.randomUUID();
+    const token = String(body.offerToken || "").trim();
+    if (!token) return res.status(400).json({ error: "missing_offerToken" });
+    const t = verifyPmsConOfferToken(token);
+    const sr = await db.query("SELECT * FROM offer_snapshots WHERE id=$1", [t.offerId]);
+    if (sr.rowCount < 1) return res.status(404).json({ error: "offer_not_found" });
+    const snap = sr.rows[0];
+    if (new Date(snap.expires_at).getTime() <= Date.now()) return res.status(409).json({ error: "offer_expired" });
+    if (String(snap.offer_hash) !== String(t.offerHash)) return res.status(400).json({ error: "offer_hash_mismatch" });
+
+    const existing = await db.query("SELECT * FROM booking_intents WHERE idempotency_key=$1 LIMIT 1", [idempotencyKey]);
+    if (existing.rowCount > 0) {
+      const row = existing.rows[0];
+      return res.json({
+        ok: true,
+        reused: true,
+        bookingIntentId: row.id,
+        status: row.status,
+        stripePaymentIntentId: row.stripe_payment_intent_id || null,
+      });
+    }
+
+    const lock = await createAvailabilityLock({
+      unitId: snap.unit_id,
+      checkIn: snap.check_in,
+      checkOut: snap.check_out,
+      nights: snap.nights,
+      guests: snap.guests,
+      offerSnapshotId: snap.id,
+    });
+
+    const bookingIntentId = crypto.randomUUID();
+    let stripePaymentIntentId = null;
+    let checkoutStatus = "checkout_started";
+    if (!PMS_CON_SHADOW_MODE_ENABLED && PMS_CON_CHECKOUT_ENABLED && stripe) {
+      const intent = await stripe.paymentIntents.create({
+        amount: Number(snap.total_price_cents),
+        currency: String(snap.currency || "eur").toLowerCase(),
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          booking_intent_id: bookingIntentId,
+          offer_snapshot_id: String(snap.id),
+          source: "pms-con",
+        },
+      });
+      stripePaymentIntentId = intent.id;
+    } else {
+      checkoutStatus = "shadow_checkout_started";
+    }
+
+    await db.query(
+      `INSERT INTO booking_intents
+       (id, status, idempotency_key, offer_snapshot_id, availability_lock_id, stripe_payment_intent_id, amount_cents, currency, guest_json, extras_json, metadata_json)
+       VALUES
+       ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb)`,
+      [
+        bookingIntentId,
+        checkoutStatus,
+        idempotencyKey,
+        snap.id,
+        lock.lockId,
+        stripePaymentIntentId,
+        Number(snap.total_price_cents),
+        String(snap.currency),
+        JSON.stringify(body.guest || {}),
+        JSON.stringify(body.extras || {}),
+        JSON.stringify({ shadowMode: PMS_CON_SHADOW_MODE_ENABLED }),
+      ]
+    );
+
+    await db.query("UPDATE availability_locks SET booking_intent_id=$2 WHERE id=$1", [lock.lockId, bookingIntentId]);
+
+    res.json({
+      ok: true,
+      requestId: crypto.randomUUID(),
+      source: "pms-con",
+      shadowMode: PMS_CON_SHADOW_MODE_ENABLED,
+      bookingIntentId,
+      availabilityLockId: lock.lockId,
+      lockExpiresAt: lock.expiresAt,
+      stripePaymentIntentId,
+      status: checkoutStatus,
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: "pms_con_checkout_error", details: err.message || String(err) });
+  }
+});
+
+app.post("/api/pms-con/webhooks/stripe", async (req, res) => {
+  try {
+    if (!requirePmsConFlagOrShadow("pmsConWebhookProcessingEnabled", res)) return;
+    if (!stripe || !db) return res.status(500).json({ error: "stripe_or_db_not_configured" });
+    const sig = req.headers["stripe-signature"];
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+    } catch (e) {
+      return res.status(400).send(`Webhook Error: ${e.message}`);
+    }
+    const eventId = String(event.id || "");
+    const inserted = await dbUpsertStripeEvent(eventId, String(event.type || ""));
+    if (!inserted) return res.json({ received: true, deduped: true, eventId });
+
+    const obj = event?.data?.object || {};
+    const paymentIntentId = String(obj?.id || obj?.payment_intent || "").trim();
+    if (!paymentIntentId) return res.json({ received: true, ignored: true, reason: "no_payment_intent" });
+    const r = await db.query("SELECT * FROM booking_intents WHERE stripe_payment_intent_id=$1 LIMIT 1", [paymentIntentId]);
+    if (r.rowCount < 1) return res.json({ received: true, ignored: true, reason: "intent_not_found" });
+    const row = r.rows[0];
+    let next = row.status;
+    const t = String(event.type || "");
+    if (t === "payment_intent.succeeded" || t === "checkout.session.completed") next = "payment_succeeded";
+    if (t === "payment_intent.payment_failed" || t === "payment_intent.canceled") next = "payment_failed";
+    await db.query("UPDATE booking_intents SET status=$2, stripe_event_id=$3, updated_at=NOW() WHERE id=$1", [row.id, next, eventId]);
+    return res.json({ received: true, bookingIntentId: row.id, status: next, eventId });
+  } catch (err) {
+    console.error("❌ pms-con webhook error:", err);
+    return res.status(500).json({ error: "pms_con_webhook_error", details: err.message || String(err) });
+  }
+});
 
 app.post("/concierge/book", rateLimit, publicBookHandler);
 app.post("/api/booking/book", rateLimit, publicBookHandler);
